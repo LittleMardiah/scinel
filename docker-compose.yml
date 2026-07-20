@@ -1,0 +1,47 @@
+﻿services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: scinel-postgres
+    environment:
+      POSTGRES_USER: scinel_user
+      POSTGRES_PASSWORD: scinel_password_dev
+      POSTGRES_DB: scinel_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scinel_user -d scinel_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scinel-net
+    stop_grace_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: scinel-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scinel-net
+    command: redis-server --appendonly yes
+    stop_grace_period: 30s
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  scinel-net:
+    driver: bridge
