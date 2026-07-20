@@ -1,0 +1,44 @@
+# Binaries & Build Artifacts
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary & Coverage
+*.test
+*.out
+coverage.html
+coverage.out
+
+# Dependency directories (if using vendoring)
+/vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE & OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment & Secrets (CRITICAL!)
+.env
+.env.local
+.env.production
+.env.staging
+*.pem
+*.key
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
