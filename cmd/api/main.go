@@ -16,6 +16,7 @@ import (
     "github.com/LittleMardiah/scinel/internal/handler"
     "github.com/LittleMardiah/scinel/internal/middleware"
     "github.com/LittleMardiah/scinel/internal/repository"
+    "github.com/LittleMardiah/scinel/internal/service"
     "github.com/LittleMardiah/scinel/internal/util"
     "github.com/LittleMardiah/scinel/pkg/logger"
 )
@@ -51,7 +52,6 @@ func main() {
     })
     if err := redisClient.Ping(context.Background()).Err(); err != nil {
         appLogger.Warn("Failed to connect to Redis", "error", err.Error())
-        // Redis gak wajib buat jalan, cuma warning
     } else {
         appLogger.Info("Redis connection established")
     }
@@ -64,34 +64,41 @@ func main() {
         cfg.JWT.RefreshExpiry,
     )
 
-    // 6. Initialize Repository
+    // 6. Initialize Repositories
     userRepo := repository.NewUserRepository(db)
+    forecastRepo := repository.NewForecastRepository(db)
+    invRepo := repository.NewInventoryRepository(db) // placeholder
 
-    // 7. Initialize Handler
+    // 7. Initialize Services
+    forecastSvc := service.NewForecastService(forecastRepo, invRepo, appLogger)
+
+    // 8. Initialize Handlers
     authHandler := handler.NewAuthHandler(userRepo, jwtManager, cfg)
     healthHandler := handler.NewHealthHandler(db, redisClient)
+    forecastHandler := handler.NewForecastHandler(forecastRepo, forecastSvc, redisClient)
 
-    // 8. Setup Router
+    // 9. Setup Router
     mux := http.NewServeMux()
 
-    // ==================== PUBLIC ROUTES ====================
-    // Auth endpoints (no auth required)
+    // Public routes
     mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
     mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
     mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
     mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 
-    // Health endpoints (no auth required)
+    // Health endpoints
     mux.HandleFunc("GET /api/v1/health", healthHandler.Health)
     mux.HandleFunc("GET /api/v1/readiness", healthHandler.Readiness)
     mux.HandleFunc("GET /api/v1/liveness", healthHandler.Liveness)
-
-    // Fallback health (for compatibility)
     mux.HandleFunc("GET /health", healthHandler.Health)
     mux.HandleFunc("GET /ready", healthHandler.Readiness)
 
-    // ==================== PROTECTED ROUTES ====================
-    // Example protected endpoint
+    // Forecast endpoints
+    mux.HandleFunc("GET /api/v1/forecasts", forecastHandler.QueryForecasts)
+    mux.HandleFunc("POST /api/v1/forecasts/generate", forecastHandler.GenerateForecasts)
+    mux.HandleFunc("GET /api/v1/forecasts/accuracy", forecastHandler.GetAccuracy)
+
+    // Protected routes example
     mux.HandleFunc("GET /api/v1/protected", func(w http.ResponseWriter, r *http.Request) {
         userInfo, ok := r.Context().Value(middleware.UserContextKey).(*middleware.UserInfo)
         if !ok {
@@ -103,14 +110,14 @@ func main() {
         w.Write([]byte(fmt.Sprintf(`{"message":"Hello %s, you have role: %s"}`, userInfo.Email, userInfo.Role)))
     })
 
-    // 9. Apply Global Middleware
+    // 10. Apply Global Middleware
     handlerWithMiddleware := middleware.CORSMiddleware(
         middleware.SecurityHeaders(
             middleware.AuthMiddleware(jwtManager)(mux),
         ),
     )
 
-    // 10. Create HTTP Server
+    // 11. Create HTTP Server
     server := &http.Server{
         Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
         Handler:      handlerWithMiddleware,
@@ -118,7 +125,7 @@ func main() {
         WriteTimeout: cfg.Server.WriteTimeout,
     }
 
-    // 11. Start Server in Goroutine
+    // 12. Start Server
     go func() {
         appLogger.Info("HTTP server listening", "address", server.Addr)
         if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -126,19 +133,17 @@ func main() {
         }
     }()
 
-    // 12. Graceful Shutdown
+    // 13. Graceful Shutdown
     sigChan := make(chan os.Signal, 1)
     signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
     <-sigChan
 
     appLogger.Info("Shutdown signal received, shutting down gracefully...")
-
     ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
     defer cancel()
 
     if err := server.Shutdown(ctx); err != nil {
         appLogger.Error("Server forced to shutdown", "error", err.Error())
     }
-
     appLogger.Info("Server shutdown complete")
 }
