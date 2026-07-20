@@ -1,4 +1,4 @@
-﻿name: CI Pipeline
+name: CI Pipeline
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
-        cache: 'go'
+        cache: true
     
     - name: Install dependencies
       run: go mod download
