@@ -6,8 +6,9 @@
       POSTGRES_USER: scinel_user
       POSTGRES_PASSWORD: scinel_password_dev
       POSTGRES_DB: scinel_db
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,6 +19,7 @@
     networks:
       - scinel-net
     stop_grace_period: 30s
+    command: postgres -c listen_addresses='*' -c log_min_duration_statement=500
 
   redis:
     image: redis:7-alpine
