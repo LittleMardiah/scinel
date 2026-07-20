@@ -29,11 +29,14 @@ return func(next http.Handler) http.Handler {
 return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 // Public paths that don't require authentication
 publicPaths := []string{
-"/api/v1/auth/register",
-"/api/v1/auth/login",
-"/api/v1/auth/refresh",
-"/health",
-"/ready",
+    "/api/v1/auth/register",
+    "/api/v1/auth/login",
+    "/api/v1/auth/refresh",
+    "/api/v1/health",
+    "/api/v1/readiness",
+    "/api/v1/liveness",
+    "/health",
+    "/ready",
 }
 
 // Check if path is public
