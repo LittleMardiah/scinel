@@ -18,7 +18,7 @@ type Logger interface {
 }
 
 // WebhookPublisher interface for publishing events (placeholder)
-type WebhookPublisher interface {
+type WebhookPublisherInterface interface {
     PublishAsync(ctx context.Context, eventType string, data interface{})
 }
 
@@ -27,7 +27,7 @@ type AnomalyService struct {
     repo      repository.AnomalyRepository
     invRepo   repository.InventoryRepository
     logger    Logger
-    publisher WebhookPublisher
+    publisher WebhookPublisherInterface
 }
 
 // NewAnomalyService creates a new anomaly service
@@ -35,7 +35,7 @@ func NewAnomalyService(
     repo repository.AnomalyRepository,
     invRepo repository.InventoryRepository,
     logger Logger,
-    publisher WebhookPublisher,
+    publisher WebhookPublisherInterface,
 ) *AnomalyService {
     return &AnomalyService{
         repo:      repo,
