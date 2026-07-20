@@ -5,7 +5,7 @@ import (
 "os"
 )
 
-// Logger wraps slog.Logger for structured logging
+// Logger wraps slog.Logger for structured logging.
 type Logger struct {
 *slog.Logger
 }
