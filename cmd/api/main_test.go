@@ -1,7 +1,7 @@
-﻿package main
+package main
 
 import "testing"
 
-func TestMain(t *testing.T) {
-    // Placeholder test
+func TestMainPlaceholder(t *testing.T) {
+	t.Skip("main function tested via integration tests")
 }

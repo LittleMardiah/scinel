@@ -21,6 +21,9 @@ type ETSForecast struct {
 // Output: 30-day forecast with confidence intervals
 // Reference: TDD Section 6.3.1
 func ExponentialSmoothingForecast(historicalDemand []int32, forecastDays int) (*ETSForecast, error) {
+	if forecastDays <= 0 {
+		return nil, fmt.Errorf("forecast days must be positive")
+	}
     if len(historicalDemand) < 30 {
         return nil, fmt.Errorf("insufficient historical data: %d days (minimum 30 required)", len(historicalDemand))
     }
