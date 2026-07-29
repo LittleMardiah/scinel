@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState, FormEvent } from 'react';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 
@@ -10,23 +10,82 @@ interface LoginFormProps {
   error?: string | null;
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading, error }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+export function LoginForm({ onSubmit, isLoading, error }: LoginFormProps) {
+  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.email) {
+      errors.email = 'Email diperlukan';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Format email tidak valid';
+    }
+
+    if (!formData.password) {
+      errors.password = 'Kata sandi diperlukan';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Kata sandi minimal 6 karakter';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    onSubmit(email, password);
+    if (!validateForm()) return;
+
+    await onSubmit(formData.email, formData.password);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>}
-      <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required disabled={isLoading} />
-      <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required disabled={isLoading} />
-      <Button type="submit" className="w-full" isLoading={isLoading} disabled={isLoading}>
-        {isLoading ? 'Loading...' : 'Login'}
+      {error && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-200 rounded-md text-sm border border-red-200 dark:border-red-800">
+          {error}
+        </div>
+      )}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Email
+        </label>
+        <Input
+          type="email"
+          placeholder="nama@perusahaan.com"
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          error={formErrors.email}
+          disabled={isLoading}
+          autoComplete="email"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Kata Sandi
+        </label>
+        <Input
+          type="password"
+          placeholder="Masukkan kata sandi"
+          value={formData.password}
+          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+          error={formErrors.password}
+          disabled={isLoading}
+          autoComplete="current-password"
+        />
+      </div>
+
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={isLoading || Object.keys(formErrors).length > 0}
+        isLoading={isLoading}
+      >
+        {isLoading ? 'Memproses...' : 'Masuk'}
       </Button>
     </form>
   );
-};
+}
