@@ -2,32 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+/* Force 16px base on mobile to prevent iOS auto-zoom */
+html {
+  font-size: 16px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
+/* Improved touch targets for mobile */
+@layer base {
+  button, a, input[type="radio"], input[type="checkbox"] {
+    @apply min-h-[44px] min-w-[44px] touch-manipulation;
   }
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+/* Scrollbar styling for tables */
+.scroll-indicator {
+  background: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.05) 100%);
+}
+.dark .scroll-indicator {
+  background: linear-gradient(to right, transparent 0%, rgba(255,255,255,0.05) 100%);
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  .touch-manipulation {
+    touch-action: manipulation;
   }
 }

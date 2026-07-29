@@ -1,3 +1,4 @@
+import { ResponsiveTable } from "@/components/common/ResponsiveTable";
 'use client';
 
 import React, { useState } from 'react';
@@ -62,7 +63,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
   if (isLoading) {
     return (
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[700px] text-sm">
+        <ResponsiveTable><table className="w-full min-w-[700px] text-sm">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
               {headers.map((h) => (
@@ -85,7 +86,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></ResponsiveTable>
       </div>
     );
   }
@@ -101,7 +102,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[700px] text-sm">
+      <ResponsiveTable><table className="w-full min-w-[700px] text-sm">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700">
             {headers.map((h) => (
@@ -199,7 +200,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></ResponsiveTable>
     </div>
   );
 };
