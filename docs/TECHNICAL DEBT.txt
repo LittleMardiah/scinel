@@ -1,0 +1,114 @@
+================================================================
+TECHNICAL DEBT REGISTER - ScIntel Platform
+================================================================
+Version    : 1.0
+Date       : 2026-07-29
+Author     : M. Arif Aulia
+Status     : ACTIVE (To be resolved in phases)
+Priority   : HIGH / MEDIUM / LOW
+================================================================
+
+================================================================
+HIGH PRIORITY (Must fix before production)
+================================================================
+
+1. REPOSITORY LAYER - EMPTY IMPLEMENTATIONS
+   - File: internal/repository/*_repository_impl.go
+   - Masalah: Semua method cuma return errors.New("not implemented")
+   - Dampak: API endpoints tidak bisa menyimpan/mengambil data dari database
+   - Status: BELUM
+   - Estimasi: 6-8 jam
+   - Catatan: Harus diisi dengan query SQL yang benar + transaction handling
+
+2. SERVICE LAYER - PLACEHOLDER LOGIC
+   - File: internal/service/*_service.go
+   - Masalah: Banyak service (inventory, forecast, anomaly, webhook) masih outline
+   - Dampak: Business logic tidak jalan
+   - Status: BELUM
+   - Estimasi: 8-10 jam
+   - Catatan: Implementasi nyata (ETS, ARIMA, Z-score, webhook publisher)
+
+3. INTEGRATION TEST - ENVIRONMENT UNSTABLE
+   - File: tests/integration/*_test.go
+   - Masalah: Testcontainers gagal di WSL (connection reset by peer)
+   - Dampak: Tidak ada integration test yang bisa dijalankan
+   - Status: TUNDA (sampai env stabil atau pake docker-compose)
+   - Estimasi: 2-3 jam (fix environment)
+
+================================================================
+MEDIUM PRIORITY (Nice to have for v1.0)
+
+4. RATE LIMITER TEST - MINIREDIS FAIL
+   - File: internal/middleware/rate_limit_test.go
+   - Masalah: Test rata-rata di-skip karena miniredis connection refused
+   - Dampak: Coverage middleware cuma 58.6% (seharusnya >80%)
+   - Status: TUNDA (pakai mock Redis atau integration test)
+   - Estimasi: 1-2 jam
+
+5. HANDLER TEST - HTTP MOCKING
+   - File: internal/handler/*_handler_test.go
+   - Masalah: Semua handler test cuma placeholder (t.Skip)
+   - Dampak: Coverage handler 0%
+   - Status: BELUM
+   - Estimasi: 4-5 jam
+   - Catatan: Butuh httptest + mocking service
+
+6. E2E TEST - FRONTEND BELUM SIAP
+   - File: tests/e2e/* (belum dibuat)
+   - Masalah: E2E butuh frontend (Next.js) untuk test flow UI
+   - Dampak: Tidak ada end-to-end verification
+   - Status: TUNDA (sampai ROADMAP_3 selesai)
+   - Estimasi: 3-4 jam (setelah frontend ready)
+
+================================================================
+LOW PRIORITY (Can be deferred to Phase 1.5)
+
+7. LOGGER COVERAGE - BELUM MAXIMAL
+   - File: pkg/logger/logger_test.go
+   - Masalah: Logger test cuma test instantiation, tidak test output
+   - Dampak: Coverage 100% tapi sebenarnya tidak comprehensive
+   - Status: BELUM
+   - Estimasi: 1 jam
+
+8. DATABASE CONNECTION TEST - MOCK TIDAK SEMPURNA
+   - File: internal/database/connection_test.go
+   - Masalah: Beberapa test di-skip karena sulit mock sql.Open
+   - Dampak: Coverage 85.4% (masih ada gap)
+   - Status: BELUM
+   - Estimasi: 1 jam
+
+9. API DOCUMENTATION - BELUM LENGKAP
+   - File: docs/API.md
+   - Masalah: Belum semua endpoint punya contoh request/response
+   - Dampak: Developer experience kurang
+   - Status: BELUM
+   - Estimasi: 1-2 jam
+
+================================================================
+DEBT SUMMARY
+
+| Kategori | HIGH | MEDIUM | LOW | TOTAL |
+|----------|------|--------|-----|-------|
+| Repository | 1 | - | - | 1 |
+| Service | 1 | - | - | 1 |
+| Testing | 1 | 3 | 2 | 6 |
+| Documentation | - | - | 1 | 1 |
+| TOTAL | 3 | 3 | 3 | 9 |
+
+TOTAL ESTIMATED TIME TO RESOLVE: 27-35 jam
+
+================================================================
+RECOMMENDED RESOLUTION ORDER
+
+1. Repository implementations (HIGH) → agar API bisa jalan
+2. Service logic (HIGH) → agar business logic jalan
+3. Integration test environment (HIGH) → agar confidence tinggi
+4. Handler tests (MEDIUM) → coverage meningkat
+5. Rate limiter test (MEDIUM) → coverage middleware meningkat
+6. E2E tests (MEDIUM) → setelah frontend ready
+7. Other LOW priority items → isi waktu luang
+
+================================================================
+LAST UPDATED: 2026-07-29
+NEXT REVIEW: Setelah ROADMAP_3 selesai
+================================================================

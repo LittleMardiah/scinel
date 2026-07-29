@@ -1,0 +1,11 @@
+LOGBOOK
+
+TASK 1.1.1
+\a. Buat file baru /backend & Run npm init -y untuk package.json
+\b. Install dependensi production & development yang dibutuhkan
+\c. Buat file tsconfig.json di /backend untuk Konfigurasi TS
+\d. Buat susunan folder-folder sesuai arsitektur (Modulith)
+\e. Buat file baru index.ts di /src untuk Entry Point
+
+TASK 1.1.2
+\a. 
