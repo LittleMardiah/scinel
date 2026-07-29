@@ -39,8 +39,10 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
   return (
     <div className="flex flex-wrap items-end gap-3">
       <div className="min-w-[180px] flex-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Gudang
+        </label>
         <Select
-          label="Gudang"
           options={warehouses}
           value={warehouseId}
           onChange={(e) => onWarehouseChange(e.target.value)}
@@ -49,8 +51,10 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
       </div>
 
       <div className="min-w-[160px] flex-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Status
+        </label>
         <Select
-          label="Status"
           options={statusOptions}
           value={status}
           onChange={(e) => onStatusChange(e.target.value)}

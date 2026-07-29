@@ -1,19 +1,22 @@
 'use client';
 
 import React from 'react';
+import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
 
+type SystemStatusType = 'online' | 'offline' | 'loading';
+
 interface SystemStatusProps {
-  status: 'online' | 'offline' | 'loading';
+  status: SystemStatusType;
   timestamp?: string;
 }
 
 export const SystemStatus: React.FC<SystemStatusProps> = ({ status, timestamp }) => {
   const statusConfig = {
-    online: { icon: CheckCircle, color: 'text-green-600', label: 'Online' },
-    offline: { icon: XCircle, color: 'text-red-600', label: 'Offline' },
-    loading: { icon: Clock, color: 'text-yellow-600', label: 'Loading...' },
+    online: { icon: CheckCircle, color: 'text-green-600 dark:text-green-400', label: 'Online' },
+    offline: { icon: XCircle, color: 'text-red-600 dark:text-red-400', label: 'Offline' },
+    loading: { icon: Clock, color: 'text-yellow-600 dark:text-yellow-400', label: 'Loading...' },
   };
 
   const config = statusConfig[status] || statusConfig.loading;

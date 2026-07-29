@@ -6,10 +6,11 @@ import { cn } from '@/lib/utils';
 interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   error?: string;
   options: { value: string; label: string }[];
+  placeholder?: string;
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, error, options, ...props }, ref) => (
+  ({ className, error, options, placeholder, ...props }, ref) => (
     <div className="w-full">
       <select
         className={cn(
@@ -20,7 +21,11 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         ref={ref}
         {...props}
       >
-        <option value="">Pilih...</option>
+        {placeholder && (
+          <option value="" disabled>
+            {placeholder}
+          </option>
+        )}
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}

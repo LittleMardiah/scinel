@@ -16,8 +16,16 @@ import {
   RefreshCw 
 } from 'lucide-react';
 
+type HealthStatus = 'online' | 'offline' | 'loading';
+
 export default function DashboardPage() {
   const { data, isLoading, error, refetch } = useDashboardData();
+
+  // Ensure health.status is one of the allowed types
+  const healthStatus: HealthStatus = 
+    data.health.status === 'online' || data.health.status === 'offline' 
+      ? data.health.status 
+      : 'loading';
 
   if (isLoading) {
     return (
@@ -59,11 +67,10 @@ export default function DashboardPage() {
     );
   }
 
-  const { kpi, transactions, forecasts, health } = data;
+  const { kpi, transactions, forecasts } = data;
 
   return (
     <div className="space-y-6">
-      {/* Page Title */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
           Dashboard
@@ -73,7 +80,6 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title="Total SKU"
@@ -101,7 +107,6 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Chart & System Status */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="md:col-span-2">
           <Card>
@@ -114,14 +119,13 @@ export default function DashboardPage() {
           </Card>
         </div>
         <div>
-          <SystemStatus status={health.status} timestamp={health.timestamp} />
+          <SystemStatus status={healthStatus} timestamp={data.health.timestamp} />
           <div className="mt-4">
             <QuickActionsCard />
           </div>
         </div>
       </div>
 
-      {/* Recent Transactions */}
       <Card>
         <CardHeader>
           <CardTitle>Transaksi Terbaru</CardTitle>
