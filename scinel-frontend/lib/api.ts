@@ -11,7 +11,7 @@ export const apiClient: AxiosInstance = axios.create({
   timeout: API_TIMEOUT,
 });
 
-// Request interceptor: Add JWT token to all requests....
+// Request interceptor: Add JWT token to all requests.
 apiClient.interceptors.request.use((config) => {
   const token = Cookies.get('access_token');
   if (token) {
