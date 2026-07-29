@@ -1,37 +1,15 @@
-﻿# Binaries & Build Outputs
-/bin/
-/dist/
-/vendor/
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-
-# Test & Coverage
-*.out
-coverage.html
-*.test
-*.prof
-
-# Environment Variables (Rahasia!)
-.env.local
-.env.production
-.env.*.local
-
-# Dependency directories
-/vendor/
-
-# OS generated files
+# Root Git ignore - hanya track scinel-backend/ dan scinel-frontend/
+scinel-backend/bin/
+scinel-backend/vendor/
+scinel-backend/coverage.out
+scinel-backend/*.out
+scinel-backend/*.html
+scinel-backend/.env.local
+scinel-backend/.env.production
+scinel-frontend/node_modules/
+scinel-frontend/.next/
+scinel-frontend/out/
+scinel-frontend/dist/
+scinel-frontend/.env.local
 .DS_Store
 Thumbs.db
-
-# IDE files
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-, not committed)
-.env.local
-.env.production

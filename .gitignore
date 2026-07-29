@@ -1,0 +1,15 @@
+# Root Git ignore
+scinel-backend/bin/
+scinel-backend/vendor/
+scinel-backend/coverage.out
+scinel-backend/*.out
+scinel-backend/*.html
+scinel-backend/.env.local
+scinel-backend/.env.production
+scinel-frontend/node_modules/
+scinel-frontend/.next/
+scinel-frontend/out/
+scinel-frontend/dist/
+scinel-frontend/.env.local
+.DS_Store
+Thumbs.db
