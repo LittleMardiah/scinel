@@ -1,17 +1,21 @@
 'use client';
 
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
+import { Badge } from '@/components/ui/Badge';
 
-export const InventoryStatusBadge: React.FC = () => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>InventoryStatusBadge</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-sm text-gray-500 dark:text-gray-400">Placeholder for InventoryStatusBadge</div>
-      </CardContent>
-    </Card>
-  );
+interface InventoryStatusBadgeProps {
+  status: 'normal' | 'low_stock' | 'critical' | string;
+}
+
+export const InventoryStatusBadge: React.FC<InventoryStatusBadgeProps> = ({ status }) => {
+  const statusMap = {
+    normal: { label: 'Normal', variant: 'success' as const },
+    low_stock: { label: 'Stok Rendah', variant: 'warning' as const },
+    critical: { label: 'Kritis', variant: 'danger' as const },
+  };
+
+  const defaultStatus = { label: status || 'Unknown', variant: 'default' as const };
+  const config = statusMap[status as keyof typeof statusMap] || defaultStatus;
+
+  return <Badge variant={config.variant}>{config.label}</Badge>;
 };
