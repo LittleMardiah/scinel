@@ -1,7 +1,5 @@
 import { render, screen } from '@testing-library/react';
 import { TouchButton } from '@/components/common/TouchButton';
-import { describe, it, expect } from 'vitest';
-
 describe('TouchButton', () => {
   it('should render with min touch classes', () => {
     render(<TouchButton>Tap me</TouchButton>);

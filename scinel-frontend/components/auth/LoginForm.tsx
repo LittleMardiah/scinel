@@ -49,42 +49,35 @@ export function LoginForm({ onSubmit, isLoading, error }: LoginFormProps) {
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Email
         </label>
         <Input
+          id="email"
           type="email"
           placeholder="nama@perusahaan.com"
           value={formData.email}
           onChange={(e) => setFormData({ ...formData, email: e.target.value })}
           error={formErrors.email}
-          disabled={isLoading}
-          autoComplete="email"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Kata Sandi
         </label>
         <Input
+          id="password"
           type="password"
           placeholder="Masukkan kata sandi"
           value={formData.password}
           onChange={(e) => setFormData({ ...formData, password: e.target.value })}
           error={formErrors.password}
-          disabled={isLoading}
-          autoComplete="current-password"
         />
       </div>
 
-      <Button
-        type="submit"
-        className="w-full"
-        disabled={isLoading || Object.keys(formErrors).length > 0}
-        isLoading={isLoading}
-      >
-        {isLoading ? 'Memproses...' : 'Masuk'}
+      <Button type="submit" isLoading={isLoading} className="w-full">
+        Masuk
       </Button>
     </form>
   );

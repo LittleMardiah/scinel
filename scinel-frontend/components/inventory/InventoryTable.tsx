@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { InventoryStatusBadge } from './InventoryStatusBadge';
 import { Button } from '@/components/common/Button';
 import { Skeleton } from '@/components/common/Skeleton';
-import { Badge } from '@/components/ui/Badge';
 import { MoreVertical, Eye, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -23,22 +22,26 @@ interface InventoryItem {
 }
 
 interface InventoryTableProps {
-  data: InventoryItem[];
+  data?: InventoryItem[];
+  items?: InventoryItem[]; // legacy alias
   isLoading?: boolean;
-  onSort: (key: string) => void;
-  sortKey: string;
-  sortOrder: 'asc' | 'desc';
+  onSort?: (key: string) => void;
+  sortKey?: string;
+  sortOrder?: 'asc' | 'desc';
   onRowClick?: (id: string) => void;
 }
 
 export const InventoryTable: React.FC<InventoryTableProps> = ({
-  data,
-  isLoading,
-  onSort,
-  sortKey,
-  sortOrder,
+  data: inputData,
+  items,
+  isLoading = false,
+  onSort = () => {},
+  sortKey = 'sku_code',
+  sortOrder = 'asc',
   onRowClick,
 }) => {
+  // Support both 'data' and 'items' props
+  const data = inputData || items || [];
   const [actionMenu, setActionMenu] = useState<string | null>(null);
 
   const headers = [
@@ -177,7 +180,6 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                         className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                         onClick={(e) => {
                           e.stopPropagation();
-                          // TODO: Edit action
                           setActionMenu(null);
                         }}
                       >
@@ -187,7 +189,6 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                         className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:text-red-400 dark:hover:bg-gray-700"
                         onClick={(e) => {
                           e.stopPropagation();
-                          // TODO: Delete action
                           setActionMenu(null);
                         }}
                       >

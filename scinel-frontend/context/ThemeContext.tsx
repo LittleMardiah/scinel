@@ -21,11 +21,12 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('system');
   const [isDark, setIsDark] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useState(true);
 
   useEffect(() => {
     const storedTheme = (localStorage.getItem('theme') as Theme | null) || 'system';
     setThemeState(storedTheme);
+
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const shouldBeDark = storedTheme === 'dark' || (storedTheme === 'system' && prefersDark);
     document.documentElement.classList.toggle('dark', shouldBeDark);
@@ -36,14 +37,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
     localStorage.setItem('theme', newTheme);
+
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const shouldBeDark = newTheme === 'dark' || (newTheme === 'system' && prefersDark);
     document.documentElement.classList.toggle('dark', shouldBeDark);
     setIsDark(shouldBeDark);
   };
 
-  if (!mounted) return <>{children}</>;
-
+  // ✅ Always provide context, even before mount
   return (
     <ThemeContext.Provider value={{ theme, setTheme, isDark }}>
       {children}

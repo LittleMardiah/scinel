@@ -1,0 +1,1087 @@
+================================================================
+📊 PROJECT INFO - SCINTEL FRONTEND
+================================================================
+
+📍 NODE & NPM VERSION
+v18.20.8
+10.8.2
+
+📍 PROJECT STRUCTURE
+.
+├── README.md
+├── app
+│   ├── (auth)
+│   │   ├── forgot-password
+│   │   ├── login
+│   │   ├── register
+│   │   └── reset-password
+│   ├── (protected)
+│   │   ├── anomalies
+│   │   ├── dashboard
+│   │   ├── forecast
+│   │   ├── inventory
+│   │   ├── layout.tsx
+│   │   ├── profile
+│   │   └── settings
+│   ├── api
+│   │   └── revalidate-tag
+│   ├── favicon.ico
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── components
+│   ├── anomaly
+│   │   ├── AnomalyCard.tsx
+│   │   ├── AnomalyChart.tsx
+│   │   ├── AnomalyList.tsx
+│   │   ├── AnomalyTimeline.tsx
+│   │   ├── ResolutionModal.tsx
+│   │   └── SeverityBadge.tsx
+│   ├── auth
+│   │   ├── ForgotPasswordForm.tsx
+│   │   ├── LoginForm.tsx
+│   │   ├── PasswordResetForm.tsx
+│   │   ├── RegisterForm.tsx
+│   │   └── ResetPasswordForm.tsx
+│   ├── common
+│   │   ├── BottomSheet.tsx
+│   │   ├── Breadcrumb.tsx
+│   │   ├── Button.tsx
+│   │   ├── Card.tsx
+│   │   ├── ConfirmDialog.tsx
+│   │   ├── ErrorBoundary.tsx
+│   │   ├── Input.tsx
+│   │   ├── Loading.tsx
+│   │   ├── Modal.tsx
+│   │   ├── Pagination.tsx
+│   │   ├── ResponsiveTable.tsx
+│   │   ├── Select.tsx
+│   │   ├── Skeleton.tsx
+│   │   ├── Toast.tsx
+│   │   ├── TouchButton.tsx
+│   │   └── index.ts
+│   ├── dashboard
+│   │   ├── ForecastChart.tsx
+│   │   ├── KPIGrid.tsx
+│   │   ├── QuickActionsCard.tsx
+│   │   ├── RecentTransactions.tsx
+│   │   ├── StatsCard.tsx
+│   │   └── SystemStatus.tsx
+│   ├── forecast
+│   │   ├── AccuracyChart.tsx
+│   │   ├── AccuracyMetrics.tsx
+│   │   ├── AlgorithmComparison.tsx
+│   │   ├── ForecastChart.tsx
+│   │   └── ForecastTable.tsx
+│   ├── inventory
+│   │   ├── InventoryFilters.tsx
+│   │   ├── InventoryHistory.tsx
+│   │   ├── InventoryStatusBadge.tsx
+│   │   ├── InventoryTable.tsx
+│   │   ├── InventoryTable.tsx.bak
+│   │   └── TransactionForm.tsx
+│   ├── layout
+│   │   ├── Footer.tsx
+│   │   ├── MobileNav.tsx
+│   │   ├── Navbar.tsx
+│   │   └── Sidebar.tsx
+│   ├── settings
+│   │   ├── ApiKeyManager.tsx
+│   │   ├── ThemeSelector.tsx
+│   │   └── WebhookManager.tsx
+│   └── ui
+│       ├── Badge.tsx
+│       ├── Checkbox.tsx
+│       ├── DatePicker.tsx
+│       ├── Radio.tsx
+│       ├── TextArea.tsx
+│       └── ThemeToggle.tsx
+├── context
+│   ├── AuthContext.tsx
+│   └── ThemeContext.tsx
+├── hooks
+│   ├── useApi.ts
+│   ├── useBreakpoint.ts
+│   └── useDashboardData.ts
+├── jest.config.js
+├── lib
+│   ├── api.ts
+│   ├── utils.ts
+│   └── validators.ts
+├── next-env.d.ts
+├── next.config.js
+├── next.config.mjs
+├── output.txt
+├── package-lock.json
+├── package.json
+├── pnpm-lock.yaml
+├── postcss.config.mjs
+├── public
+│   ├── icons
+│   ├── next.svg
+│   └── vercel.svg
+├── scripts
+│   ├── convert-tests.js
+│   ├── fix-tests.js
+│   └── generate-tests.sh
+├── tailwind.config.ts
+├── tests
+│   ├── components
+│   │   ├── anomaly
+│   │   ├── auth
+│   │   ├── common
+│   │   ├── dashboard
+│   │   ├── forecast
+│   │   ├── inventory
+│   │   └── settings
+│   ├── hooks
+│   │   ├── useApi.test.ts
+│   │   ├── useAuth.test.ts
+│   │   └── useTheme.test.ts
+│   ├── lib
+│   │   ├── utils.test.ts
+│   │   └── validators.test.ts
+│   ├── setup.jest.tsx
+│   ├── setup.ts
+│   └── utils
+├── tests_backup
+│   ├── components
+│   │   ├── anomaly
+│   │   ├── auth
+│   │   ├── common
+│   │   ├── dashboard
+│   │   ├── forecast
+│   │   ├── inventory
+│   │   └── settings
+│   ├── hooks
+│   │   ├── useApi.test.ts
+│   │   ├── useAuth.test.ts
+│   │   └── useTheme.test.ts
+│   ├── lib
+│   │   ├── utils.test.ts
+│   │   └── validators.test.ts
+│   ├── setup.jest.tsx
+│   ├── setup.ts
+│   └── utils
+├── tsconfig.json
+├── tsconfig.tsbuildinfo
+├── typeof
+├── types
+├── vitest.config.mjs
+└── vitest.config.ts.bak
+
+57 directories, 105 files
+
+📍 SOURCE COMPONENTS
+--- components/auth/LoginForm.tsx ---
+'use client';
+
+import { useState, FormEvent } from 'react';
+import { Button } from '@/components/common/Button';
+import { Input } from '@/components/common/Input';
+
+interface LoginFormProps {
+  onSubmit: (email: string, password: string) => Promise<void>;
+  isLoading?: boolean;
+  error?: string | null;
+}
+
+export function LoginForm({ onSubmit, isLoading, error }: LoginFormProps) {
+  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.email) {
+      errors.email = 'Email diperlukan';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Format email tidak valid';
+    }
+
+    if (!formData.password) {
+      errors.password = 'Kata sandi diperlukan';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Kata sandi minimal 6 karakter';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    await onSubmit(formData.email, formData.password);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-200 rounded-md text-sm border border-red-200 dark:border-red-800">
+          {error}
+        </div>
+      )}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Email
+        </label>
+        <Input
+          type="email"
+          placeholder="nama@perusahaan.com"
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          error={formErrors.email}
+          disabled={isLoading}
+          autoComplete="email"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Kata Sandi
+        </label>
+        <Input
+          type="password"
+          placeholder="Masukkan kata sandi"
+          value={formData.password}
+          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+          error={formErrors.password}
+          disabled={isLoading}
+          autoComplete="current-password"
+        />
+      </div>
+
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={isLoading || Object.keys(formErrors).length > 0}
+        isLoading={isLoading}
+      >
+        {isLoading ? 'Memproses...' : 'Masuk'}
+      </Button>
+    </form>
+  );
+}
+
+--- components/common/Input.tsx ---
+'use client';
+
+import React from 'react';
+import { cn } from '@/lib/utils';
+
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  error?: string;
+}
+
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, error, ...props }, ref) => (
+    <div className="w-full">
+      <input
+        className={cn(
+          'w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:focus:border-blue-400',
+          error && 'border-red-500 focus:border-red-500 focus:ring-red-500/20',
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+    </div>
+  )
+);
+Input.displayName = 'Input';
+
+--- components/inventory/InventoryTable.tsx ---
+import { ResponsiveTable } from "@/components/common/ResponsiveTable";
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { InventoryStatusBadge } from './InventoryStatusBadge';
+import { Button } from '@/components/common/Button';
+import { Skeleton } from '@/components/common/Skeleton';
+import { Badge } from '@/components/ui/Badge';
+import { MoreVertical, Eye, Pencil, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface InventoryItem {
+  id: string;
+  sku_code: string;
+  name?: string;
+  quantity: number;
+  status: 'normal' | 'low_stock' | 'critical';
+  warehouse_id: string;
+  warehouse_name?: string;
+  last_restock_date?: string;
+  updated_at: string;
+}
+
+interface InventoryTableProps {
+  data: InventoryItem[];
+  isLoading?: boolean;
+  onSort: (key: string) => void;
+  sortKey: string;
+  sortOrder: 'asc' | 'desc';
+  onRowClick?: (id: string) => void;
+}
+
+export const InventoryTable: React.FC<InventoryTableProps> = ({
+  data,
+  isLoading,
+  onSort,
+  sortKey,
+  sortOrder,
+  onRowClick,
+}) => {
+  const [actionMenu, setActionMenu] = useState<string | null>(null);
+
+  const headers = [
+    { key: 'sku_code', label: 'Kode SKU' },
+    { key: 'name', label: 'Nama Produk' },
+    { key: 'quantity', label: 'Kuantitas' },
+    { key: 'status', label: 'Status' },
+    { key: 'warehouse_name', label: 'Gudang' },
+    { key: 'last_restock_date', label: 'Restock Terakhir' },
+    { key: 'actions', label: 'Aksi' },
+  ];
+
+  const getSortIcon = (key: string) => {
+    if (sortKey !== key) return '↕';
+    return sortOrder === 'asc' ? '↑' : '↓';
+  };
+
+  const handleSort = (key: string) => {
+    onSort(key);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="overflow-x-auto">
+        <ResponsiveTable><table className="w-full min-w-[700px] text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 dark:border-gray-700">
+              {headers.map((h) => (
+                <th key={h.key} className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                  {h.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...Array(5)].map((_, i) => (
+              <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
+                <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
+                <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
+                <td className="px-4 py-3"><Skeleton className="h-4 w-12" /></td>
+                <td className="px-4 py-3"><Skeleton className="h-6 w-16 rounded-full" /></td>
+                <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
+                <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
+                <td className="px-4 py-3"><Skeleton className="h-8 w-8 rounded-full" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></ResponsiveTable>
+      </div>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+        <p className="text-lg">Belum ada data inventaris</p>
+        <p className="text-sm">Mulai tambahkan transaksi untuk melihat stok.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <ResponsiveTable><table className="w-full min-w-[700px] text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 dark:border-gray-700">
+            {headers.map((h) => (
+              <th
+                key={h.key}
+                className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200"
+                onClick={() => h.key !== 'actions' && handleSort(h.key)}
+              >
+                <div className="flex items-center gap-1">
+                  {h.label}
+                  {h.key !== 'actions' && (
+                    <span className="text-xs opacity-50">{getSortIcon(h.key)}</span>
+                  )}
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((item) => (
+            <tr
+              key={item.id}
+              className={cn(
+                'border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors',
+                onRowClick && 'cursor-pointer'
+              )}
+              onClick={() => onRowClick?.(item.id)}
+            >
+              <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                {item.sku_code}
+              </td>
+              <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                {item.name || '-'}
+              </td>
+              <td className="px-4 py-3 text-gray-900 dark:text-white">
+                {item.quantity}
+              </td>
+              <td className="px-4 py-3">
+                <InventoryStatusBadge status={item.status} />
+              </td>
+              <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                {item.warehouse_name || item.warehouse_id || '-'}
+              </td>
+              <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                {item.last_restock_date
+                  ? new Date(item.last_restock_date).toLocaleDateString('id-ID')
+                  : '-'}
+              </td>
+              <td className="px-4 py-3">
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActionMenu(actionMenu === item.id ? null : item.id);
+                    }}
+                    className="h-8 w-8 p-0"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                  {actionMenu === item.id && (
+                    <div className="absolute right-0 z-10 mt-1 min-w-[140px] rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                      <Link
+                        href={`/inventory/${item.id}`}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                        onClick={() => setActionMenu(null)}
+                      >
+                        <Eye className="h-4 w-4" /> Detail
+                      </Link>
+                      <button
+                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // TODO: Edit action
+                          setActionMenu(null);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" /> Edit
+                      </button>
+                      <button
+                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:text-red-400 dark:hover:bg-gray-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // TODO: Delete action
+                          setActionMenu(null);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" /> Hapus
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table></ResponsiveTable>
+    </div>
+  );
+};
+
+--- components/common/Select.tsx ---
+'use client';
+
+import React from 'react';
+import { cn } from '@/lib/utils';
+
+interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  error?: string;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}
+
+export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
+  ({ className, error, options, placeholder, ...props }, ref) => (
+    <div className="w-full">
+      <select
+        className={cn(
+          'w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:focus:border-blue-400',
+          error && 'border-red-500 focus:border-red-500 focus:ring-red-500/20',
+          className
+        )}
+        ref={ref}
+        {...props}
+      >
+        {placeholder && (
+          <option value="" disabled>
+            {placeholder}
+          </option>
+        )}
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+    </div>
+  )
+);
+Select.displayName = 'Select';
+
+--- components/common/BottomSheet.tsx ---
+'use client';
+import { ReactNode, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
+import { TouchButton } from './TouchButton';
+import { cn } from '@/lib/utils';
+
+interface BottomSheetProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title?: string;
+  children: ReactNode;
+  className?: string;
+  closeOnBackdropClick?: boolean;
+}
+
+export function BottomSheet({
+  isOpen,
+  onClose,
+  title,
+  children,
+  className = '',
+  closeOnBackdropClick = true,
+}: BottomSheetProps) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Prevent body scroll when open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm transition-all duration-300 animate-in fade-in">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0"
+        onClick={closeOnBackdropClick ? onClose : undefined}
+        aria-hidden="true"
+      />
+
+      {/* Sheet Content */}
+      <div
+        ref={sheetRef}
+        className={cn(
+          'relative w-full max-w-md mx-auto bg-white dark:bg-gray-900 rounded-t-2xl shadow-2xl',
+          'max-h-[85vh] overflow-y-auto animate-in slide-in-from-bottom duration-300',
+          className
+        )}
+        style={{ touchAction: 'pan-y' }}
+      >
+        {/* Drag handle (visual) */}
+        <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800">
+          <div className="flex-1">
+            {title && <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h3>}
+          </div>
+          <TouchButton
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+            aria-label="Tutup"
+          >
+            <X className="w-5 h-5" />
+          </TouchButton>
+        </div>
+
+        <div className="p-4 pb-6">{children}</div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+--- components/dashboard/StatsCard.tsx ---
+import { ReactNode } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
+import { cn } from '@/lib/utils';
+
+interface StatsCardProps {
+  title: string;
+  value: string | number;
+  icon?: ReactNode;
+  className?: string;
+}
+
+export function StatsCard({ title, value, icon, className }: StatsCardProps) {
+  return (
+    <Card className={cn('', className)}>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium text-gray-500 dark:text-gray-400">
+          {title}
+        </CardTitle>
+        {icon && <div className="text-gray-400">{icon}</div>}
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default StatsCard;
+
+--- components/forecast/ForecastChart.tsx ---
+'use client';
+
+import React from 'react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Area,
+  ComposedChart,
+} from 'recharts';
+
+interface ForecastData {
+  date: string;
+  predicted_demand: number;
+  lower_bound?: number;
+  upper_bound?: number;
+  confidence?: number;
+}
+
+interface ForecastChartProps {
+  data: ForecastData[];
+  height?: number;
+  isLoading?: boolean;
+  algorithm?: string;
+}
+
+export const ForecastChart: React.FC<ForecastChartProps> = ({
+  data,
+  height = 300,
+  isLoading,
+  algorithm = 'ETS',
+}) => {
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center text-gray-500 dark:text-gray-400">
+        Memuat data forecast...
+      </div>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex h-64 items-center justify-center text-gray-500 dark:text-gray-400">
+        Belum ada data forecast. Generate forecast terlebih dahulu.
+      </div>
+    );
+  }
+
+  const chartData = data.slice(0, 30).map((item) => ({
+    date: new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }),
+    demand: item.predicted_demand,
+    lower: item.lower_bound ?? item.predicted_demand * 0.8,
+    upper: item.upper_bound ?? item.predicted_demand * 1.2,
+  }));
+
+  const formatYAxis = (value: number) => {
+    if (value >= 1000) return `${value / 1000}K`;
+    return value.toString();
+  };
+
+  return (
+    <div style={{ width: '100%', height }}>
+      <ResponsiveContainer>
+        <ComposedChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
+          <XAxis
+            dataKey="date"
+            className="text-xs text-gray-500 dark:text-gray-400"
+            tick={{ fontSize: 11 }}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            className="text-xs text-gray-500 dark:text-gray-400"
+            tickFormatter={formatYAxis}
+            tick={{ fontSize: 11 }}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              borderColor: '#e5e7eb',
+              borderRadius: '8px',
+            }}
+            labelStyle={{ color: '#1f2937' }}
+          />
+          <Legend wrapperStyle={{ fontSize: '12px' }} />
+
+          <Area
+            type="monotone"
+            dataKey="upper"
+            name="Upper Bound"
+            stroke="none"
+            fill="#93c5fd"
+            fillOpacity={0.3}
+          />
+          <Area
+            type="monotone"
+            dataKey="lower"
+            name="Lower Bound"
+            stroke="none"
+            fill="#93c5fd"
+            fillOpacity={0.3}
+          />
+
+          <Line
+            type="monotone"
+            dataKey="demand"
+            name="Prediksi Demand"
+            stroke="#0ea5e9"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 6 }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+
+      <div className="mt-2 text-center text-xs text-gray-400">
+        Menggunakan algoritma: <span className="font-medium text-gray-600 dark:text-gray-300">{algorithm}</span>
+        {' • '}
+        Interval kepercayaan 95%
+      </div>
+    </div>
+  );
+};
+
+--- lib/api.ts ---
+import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
+import Cookies from 'js-cookie';
+import { Toast } from '@/components/common/Toast';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+const API_TIMEOUT = parseInt(process.env.NEXT_PUBLIC_API_TIMEOUT || '30000');
+
+export const apiClient: AxiosInstance = axios.create({
+  baseURL: API_BASE,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: API_TIMEOUT,
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = Cookies.get('access_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      try {
+        const refreshToken = Cookies.get('refresh_token');
+        if (!refreshToken) throw new Error('No refresh token');
+        const response = await axios.post(`${API_BASE}/auth/refresh`, { refresh_token: refreshToken });
+        const { access_token, refresh_token } = response.data.data;
+        Cookies.set('access_token', access_token, { secure: true, sameSite: 'strict', expires: 1 / 24 });
+        Cookies.set('refresh_token', refresh_token, { secure: true, sameSite: 'strict', expires: 7 });
+        if (originalRequest.headers) originalRequest.headers.Authorization = `Bearer ${access_token}`;
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        Cookies.remove('access_token'); Cookies.remove('refresh_token');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
+    }
+    const errorHandlers: Record<number, () => void> = {
+      429: () => {
+        const retryAfter = error.response?.headers['retry-after'] || '60';
+        Toast.error(`Terlalu banyak permintaan. Coba lagi dalam ${retryAfter} detik.`);
+      },
+      403: () => Toast.error('Anda tidak berhak mengakses resource ini.'),
+      404: () => Toast.error('Resource tidak ditemukan.'),
+    };
+    const handler = errorHandlers[error.response?.status as keyof typeof errorHandlers];
+    if (handler) handler();
+    else if (error.response?.status && error.response.status >= 500) {
+      const requestId = error.response.headers['x-request-id'] || 'unknown';
+      Toast.error(`Terjadi kesalahan server (ID: ${requestId}). Tim kami sedang menangani.`);
+    } else if (!error.response) Toast.error('Koneksi gagal. Periksa internet Anda.');
+    return Promise.reject(error);
+  }
+);
+
+// ============================================================
+// API KEY INTERFACES & FUNCTIONS
+// ============================================================
+export interface ApiKey {
+  id: string; key_prefix: string; name: string; permissions: string[];
+  is_active: boolean; last_used_at?: string; expires_at?: string; created_at: string;
+}
+
+const mockApiKeys: ApiKey[] = [
+  { id: 'ak-mock-1', key_prefix: 'sk_test_abc123', name: 'Integrasi ERP', permissions: ['inventory:read', 'forecast:read'], is_active: true, last_used_at: new Date().toISOString(), expires_at: new Date(Date.now() + 365*86400000).toISOString(), created_at: new Date().toISOString() },
+  { id: 'ak-mock-2', key_prefix: 'sk_test_def456', name: 'Mobile App', permissions: ['inventory:read', 'inventory:write'], is_active: true, last_used_at: new Date(Date.now() - 86400000).toISOString(), expires_at: null, created_at: new Date(Date.now() - 30*86400000).toISOString() },
+];
+
+export const getApiKeys = async (): Promise<ApiKey[]> => {
+  try { const res = await apiClient.get('/api-keys'); return res.data.data.keys || []; }
+  catch (e) { console.warn('⚠️ [DEBUG] Backend API Keys placeholder, using mock data.'); return mockApiKeys; }
+};
+
+export const createApiKey = async (data: { name: string; permissions: string[]; expires_in_days?: number }): Promise<{ id: string; key_prefix: string; key_secret: string }> => {
+  try { const res = await apiClient.post('/api-keys', data); return res.data.data; }
+  catch (e) { console.warn('⚠️ [DEBUG] Backend create mock, generating fake key.'); return { id: 'ak-new-' + Date.now(), key_prefix: 'sk_new_' + Math.random().toString(36).slice(2,7), key_secret: 'sk_live_' + Math.random().toString(36).slice(2,15) }; }
+};
+
+export const revokeApiKey = async (id: string): Promise<void> => {
+  try { await apiClient.delete(`/api-keys/${id}`); }
+  catch (e) { console.warn(`⚠️ [DEBUG] Mock revoke for ${id}`); }
+};
+
+export const rotateApiKey = async (id: string): Promise<{ key_secret: string }> => {
+  try { const res = await apiClient.post(`/api-keys/${id}/rotate`); return res.data.data; }
+  catch (e) { console.warn(`⚠️ [DEBUG] Mock rotate for ${id}`); return { key_secret: 'sk_rotated_' + Math.random().toString(36).slice(2,15) }; }
+};
+
+// ============================================================
+// WEBHOOK INTERFACES & FUNCTIONS
+// ============================================================
+export interface WebhookSubscription {
+  id: string; event_type: string; webhook_url: string; is_active: boolean;
+  max_retries: number; retry_interval: number; created_at: string;
+}
+
+const mockWebhooks: WebhookSubscription[] = [
+  { id: 'wh-mock-1', event_type: 'inventory.changed', webhook_url: 'https://erp.example.com/webhook', is_active: true, max_retries: 5, retry_interval: 60, created_at: new Date().toISOString() },
+  { id: 'wh-mock-2', event_type: 'anomaly.detected', webhook_url: 'https://monitor.example.com/webhook', is_active: false, max_retries: 3, retry_interval: 120, created_at: new Date(Date.now() - 7*86400000).toISOString() },
+];
+
+export const getWebhooks = async (): Promise<WebhookSubscription[]> => {
+  try { const res = await apiClient.get('/webhooks/subscriptions'); return res.data.data.subscriptions || []; }
+  catch (e) { console.warn('⚠️ [DEBUG] Backend Webhooks placeholder, using mock data.'); return mockWebhooks; }
+};
+
+export const createWebhook = async (data: { event_type: string; webhook_url: string; max_retries?: number; retry_interval?: number }): Promise<{ id: string; secret_key: string }> => {
+  try { const res = await apiClient.post('/webhooks/subscribe', data); return res.data.data; }
+  catch (e) { console.warn('⚠️ [DEBUG] Mock create webhook.'); return { id: 'wh-new-' + Date.now(), secret_key: 'whsec_' + Math.random().toString(36).slice(2,15) }; }
+};
+
+export const deleteWebhook = async (id: string): Promise<void> => {
+  try { await apiClient.delete(`/webhooks/subscriptions/${id}`); }
+  catch (e) { console.warn(`⚠️ [DEBUG] Mock delete webhook ${id}`); }
+};
+
+export const toggleWebhook = async (id: string, isActive: boolean): Promise<void> => {
+  try { await apiClient.put(`/webhooks/subscriptions/${id}`, { is_active: isActive }); }
+  catch (e) { console.warn(`⚠️ [DEBUG] Mock toggle webhook ${id} to ${isActive}`); }
+};
+
+📍 TEST FILES
+--- tests/components/auth/LoginForm.test.tsx ---
+import { render, screen, fireEvent } from '@testing-library/react';
+import { LoginForm } from '@/components/auth/LoginForm';
+describe('LoginForm', () => {
+  it('should render email and password fields', () => {
+    render(<LoginForm onSubmit={jest.fn()} />);
+    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/kata sandi/i)).toBeInTheDocument();
+  });
+
+  it('should validate email format', async () => {
+    const handleSubmit = jest.fn();
+    render(<LoginForm onSubmit={handleSubmit} />);
+    const emailInput = screen.getByLabelText(/email/i);
+    const submitBtn = screen.getByRole('button', { name: /masuk/i });
+    fireEvent.change(emailInput, { target: { value: 'invalid-email' } });
+    fireEvent.click(submitBtn);
+    expect(await screen.findByText(/format email tidak valid/i)).toBeInTheDocument();
+    expect(handleSubmit).not.toHaveBeenCalled();
+  });
+
+  it('should submit with valid credentials', async () => {
+    const handleSubmit = jest.fn();
+    render(<LoginForm onSubmit={handleSubmit} />);
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
+    fireEvent.change(screen.getByLabelText(/kata sandi/i), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: /masuk/i }));
+    expect(handleSubmit).toHaveBeenCalledWith('test@example.com', 'password123');
+  });
+
+  it('should show error message', () => {
+    render(<LoginForm onSubmit={jest.fn()} error="Login failed" />);
+    expect(screen.getByText('Login failed')).toBeInTheDocument();
+  });
+});
+
+--- tests/components/inventory/InventoryTable.test.tsx ---
+import { render, screen, fireEvent } from '@testing-library/react';
+import { InventoryTable } from '@/components/inventory/InventoryTable';
+const mockItems = [
+  { id: '1', sku: 'SKU-001', name: 'Product A', quantity: 100, status: 'normal', warehouse: 'Jakarta' },
+  { id: '2', sku: 'SKU-002', name: 'Product B', quantity: 5, status: 'low_stock', warehouse: 'Bandung' },
+];
+
+describe('InventoryTable', () => {
+  it('should render inventory rows', () => {
+    render(<InventoryTable items={mockItems} />);
+    expect(screen.getByText('Product A')).toBeInTheDocument();
+    expect(screen.getByText('Product B')).toBeInTheDocument();
+  });
+
+  it('should call onSort when header clicked', () => {
+    const onSort = jest.fn();
+    render(<InventoryTable items={mockItems} onSort={onSort} />);
+    const header = screen.getByText(/sku/i);
+    fireEvent.click(header);
+    expect(onSort).toHaveBeenCalled();
+  });
+});
+
+--- tests/components/common/Select.test.tsx ---
+import { render, screen, fireEvent } from '@testing-library/react';
+import { Select } from '@/components/common/Select';
+describe('Select', () => {
+  const options = [{ value: '1', label: 'Option 1' }, { value: '2', label: 'Option 2' }];
+
+  it('should render options', () => {
+    render(<Select options={options} />);
+    expect(screen.getByText('Option 1')).toBeInTheDocument();
+    expect(screen.getByText('Option 2')).toBeInTheDocument();
+  });
+
+  it('should handle onChange', () => {
+    const handleChange = jest.fn();
+    render(<Select options={options} onChange={handleChange} />);
+    const select = screen.getByRole('combobox');
+    fireEvent.change(select, { target: { value: '2' } });
+    expect(handleChange).toHaveBeenCalledWith('2');
+  });
+});
+
+--- tests/components/common/BottomSheet.test.tsx ---
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { BottomSheet } from '@/components/common/BottomSheet';
+describe('BottomSheet', () => {
+  it('should render when open', () => {
+    render(<BottomSheet isOpen={true} onClose={() => {}} title="Test Sheet"><div>Content</div></BottomSheet>);
+    expect(screen.getByText('Test Sheet')).toBeInTheDocument();
+    expect(screen.getByText('Content')).toBeInTheDocument();
+  });
+
+  it('should call onClose when backdrop clicked', async () => {
+    const onClose = jest.fn();
+    const user = userEvent.setup();
+    render(<BottomSheet isOpen={true} onClose={onClose}><div>Content</div></BottomSheet>);
+    const backdrop = document.querySelector('.fixed.inset-0.bg-black\\/50');
+    if (backdrop) await user.click(backdrop);
+    expect(onClose).toHaveBeenCalled();
+  });
+});
+
+--- tests/hooks/useApi.test.ts ---
+import { renderHook, waitFor } from '@testing-library/react';
+import { useApi } from '@/hooks/useApi';
+import apiClient from '@/lib/api';
+
+jest.mock('@/lib/api', () => ({
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+  },
+}));
+
+describe('useApi', () => {
+  it('should fetch data successfully', async () => {
+    const mockData = { data: { data: 'test' } };
+    (apiClient.get as any).mockResolvedValueOnce(mockData);
+
+    const { result } = renderHook(() => useApi('/test'));
+    expect(result.current.isLoading).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.data).toEqual('test');
+    });
+  });
+
+  it('should handle error', async () => {
+    (apiClient.get as any).mockRejectedValueOnce(new Error('Network error'));
+    const { result } = renderHook(() => useApi('/test'));
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBeDefined();
+    });
+  });
+});
+
+📍 LIST OF ALL TEST FILES
+tests/components/anomaly/AnomalyList.test.tsx
+tests/components/anomaly/SeverityBadge.test.tsx
+tests/components/auth/LoginForm.test.tsx
+tests/components/auth/RegisterForm.test.tsx
+tests/components/common/BottomSheet.test.tsx
+tests/components/common/Button.test.tsx
+tests/components/common/Card.test.tsx
+tests/components/common/Input.test.tsx
+tests/components/common/Modal.test.tsx
+tests/components/common/Select.test.tsx
+tests/components/common/Toast.test.tsx
+tests/components/common/TouchButton.test.tsx
+tests/components/dashboard/RecentTransactions.test.tsx
+tests/components/dashboard/StatsCard.test.tsx
+tests/components/forecast/ForecastChart.test.tsx
+tests/components/inventory/InventoryTable.test.tsx
+tests/components/inventory/TransactionForm.test.tsx
+tests/components/settings/ApiKeyManager.test.tsx
+tests/components/settings/ThemeSelector.test.tsx
+tests/hooks/useApi.test.ts
+tests/hooks/useAuth.test.ts
+tests/hooks/useTheme.test.ts
+tests/lib/utils.test.ts
+tests/lib/validators.test.ts
