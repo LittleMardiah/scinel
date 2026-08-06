@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { ThemeToggle } from '@/components/common/ThemeToggle';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { MobileNav } from './MobileNav';
 import { TouchButton } from '@/components/common/TouchButton';
 import { cn } from '@/lib/utils';

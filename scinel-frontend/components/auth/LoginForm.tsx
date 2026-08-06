@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
-import { Button } from '@/components/common/Button';
-import { Input } from '@/components/common/Input';
+import { useState, FormEvent } from "react";
+import { Button } from "@/components/common/Button";
+import { Input } from "@/components/common/Input";
 
 interface LoginFormProps {
   onSubmit: (email: string, password: string) => Promise<void>;
@@ -11,22 +11,22 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ onSubmit, isLoading, error }: LoginFormProps) {
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formData, setFormData] = useState({ email: "", password: "" });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
 
     if (!formData.email) {
-      errors.email = 'Email diperlukan';
+      errors.email = "Email diperlukan";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.email = 'Format email tidak valid';
+      errors.email = "Format email tidak valid";
     }
 
     if (!formData.password) {
-      errors.password = 'Kata sandi diperlukan';
+      errors.password = "Kata sandi diperlukan";
     } else if (formData.password.length < 6) {
-      errors.password = 'Kata sandi minimal 6 karakter';
+      errors.password = "Kata sandi minimal 6 karakter";
     }
 
     setFormErrors(errors);
@@ -43,7 +43,10 @@ export function LoginForm({ onSubmit, isLoading, error }: LoginFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-200 rounded-md text-sm border border-red-200 dark:border-red-800">
+        <div
+          role="alert"
+          className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-200 rounded-md text-sm border border-red-200 dark:border-red-800"
+        >
           {error}
         </div>
       )}
@@ -60,6 +63,9 @@ export function LoginForm({ onSubmit, isLoading, error }: LoginFormProps) {
           onChange={(e) => setFormData({ ...formData, email: e.target.value })}
           error={formErrors.email}
         />
+        {formErrors.email && (
+          <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.email}</p>
+        )}
       </div>
 
       <div>
@@ -74,6 +80,9 @@ export function LoginForm({ onSubmit, isLoading, error }: LoginFormProps) {
           onChange={(e) => setFormData({ ...formData, password: e.target.value })}
           error={formErrors.password}
         />
+        {formErrors.password && (
+          <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.password}</p>
+        )}
       </div>
 
       <Button type="submit" isLoading={isLoading} className="w-full">

@@ -1,15 +1,15 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { jest } from '@jest/globals';
 
 // Mock next/navigation
-vi.mock('next/navigation', () => ({
+jest.mock('next/navigation', () => ({
   useRouter: () => ({
-    push: vi.fn(),
-    replace: vi.fn(),
-    prefetch: vi.fn(),
-    back: vi.fn(),
-    forward: vi.fn(),
-    refresh: vi.fn(),
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: jest.fn(),
     pathname: '/',
     query: {},
   }),
@@ -18,40 +18,40 @@ vi.mock('next/navigation', () => ({
 }));
 
 // Mock next-themes
-vi.mock('next-themes', () => ({
+jest.mock('next-themes', () => ({
   useTheme: () => ({
     theme: 'light',
-    setTheme: vi.fn(),
+    setTheme: jest.fn(),
     resolvedTheme: 'light',
     themes: ['light', 'dark', 'system'],
   }),
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-// Mock window.matchMedia
+// Mock window.matchMedia for dark mode tests
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: vi.fn().mockImplementation((query) => ({
+  value: jest.fn().mockImplementation((query) => ({
     matches: false,
     media: query,
     onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
   })),
 });
 
 // Mock IntersectionObserver
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
+global.IntersectionObserver = jest.fn().mockImplementation(() => ({
+  observe: jest.fn(),
+  unobserve: jest.fn(),
+  disconnect: jest.fn(),
 }));
 
 // Mock Recharts to avoid rendering issues in JSDOM
-vi.mock('recharts', () => {
+jest.mock('recharts', () => {
   const React = require('react');
   return {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
@@ -73,6 +73,3 @@ vi.mock('recharts', () => {
     Legend: () => <div />,
   };
 });
-
-// Suppress console errors during tests (optional)
-// console.error = vi.fn();

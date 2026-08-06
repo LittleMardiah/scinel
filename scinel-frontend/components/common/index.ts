@@ -13,4 +13,3 @@ export * from './Pagination';
 export * from './ConfirmDialog';
 export * from './Breadcrumb';
 export * from './ResponsiveTable';
-export * from './ThemeToggle';

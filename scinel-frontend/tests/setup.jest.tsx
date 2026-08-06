@@ -1,35 +1,36 @@
-import '@testing-library/jest-dom';
-import { jest } from '@jest/globals';
+import "@testing-library/jest-dom";
+import { jest } from "@jest/globals";
 
-// Mock next/navigation
-jest.mock('next/navigation', () => ({
-  useRouter: () => ({
+// ===== MOCK GLOBAL NEXT/NAVIGATION =====
+jest.mock("next/navigation", () => ({
+  useRouter: jest.fn(() => ({
     push: jest.fn(),
     replace: jest.fn(),
     prefetch: jest.fn(),
     back: jest.fn(),
     forward: jest.fn(),
     refresh: jest.fn(),
-    pathname: '/',
+    pathname: "/",
     query: {},
-  }),
-  usePathname: () => '/',
-  useSearchParams: () => new URLSearchParams(),
+  })),
+  usePathname: jest.fn(() => "/"),
+  useSearchParams: jest.fn(() => new URLSearchParams()),
+  useParams: jest.fn(() => ({})),
 }));
 
-// Mock next-themes
-jest.mock('next-themes', () => ({
-  useTheme: () => ({
-    theme: 'light',
+// ===== MOCK GLOBAL NEXT-THEMES =====
+jest.mock("next-themes", () => ({
+  useTheme: jest.fn(() => ({
+    theme: "light",
     setTheme: jest.fn(),
-    resolvedTheme: 'light',
-    themes: ['light', 'dark', 'system'],
-  }),
+    resolvedTheme: "light",
+    themes: ["light", "dark", "system"],
+  })),
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-// Mock window.matchMedia for dark mode tests
-Object.defineProperty(window, 'matchMedia', {
+// ===== MOCK WINDOW.MATCHMEDIA =====
+Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: jest.fn().mockImplementation((query) => ({
     matches: false,
@@ -43,19 +44,19 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// Mock IntersectionObserver
+// ===== MOCK INTERSECTIONOBSERVER =====
 global.IntersectionObserver = jest.fn().mockImplementation(() => ({
   observe: jest.fn(),
   unobserve: jest.fn(),
   disconnect: jest.fn(),
 }));
 
-// Mock Recharts to avoid rendering issues in JSDOM
-jest.mock('recharts', () => {
-  const React = require('react');
+// ===== MOCK RECHARTS =====
+jest.mock("recharts", () => {
+  const React = require("react");
   return {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-      <div style={{ width: '100%', height: '100%' }}>{children}</div>
+      <div style={{ width: "100%", height: "100%" }}>{children}</div>
     ),
     ComposedChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -74,5 +75,12 @@ jest.mock('recharts', () => {
   };
 });
 
-// Suppress console errors during tests (optional)
+// ===== MOCK THEMETOGGLE =====
+jest.mock("@/components/ui/ThemeToggle", () => ({
+  ThemeToggle: () => <button data-testid="theme-toggle">Toggle Theme</button>,
+}));
+
+// ===== TIDAK ADA MOCK UNTUK LAYOUT COMPONENTS DI SINI =====
+// (Mock dilakukan di masing-masing test file jika diperlukan)
+
 // console.error = jest.fn();
