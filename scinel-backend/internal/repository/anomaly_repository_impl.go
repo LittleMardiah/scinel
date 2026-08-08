@@ -2,7 +2,8 @@ package repository
 
 import (
     "context"
-    "errors"
+    "fmt"
+    "time"
 
     "github.com/google/uuid"
     "github.com/LittleMardiah/scinel/internal/database"
@@ -19,30 +20,201 @@ func NewAnomalyRepository(db *database.DB) AnomalyRepository {
     return &anomalyRepository{db: db}
 }
 
-// --- PLACEHOLDER IMPLEMENTATIONS ---
-// All methods return "not implemented" errors for now.
-// Will be implemented in ROADMAP_2 Week 4.1
+// --- IMPLEMENTATIONS ---
 
-func (r *anomalyRepository) Create(ctx context.Context, anomaly *model.Anomaly) (*model.Anomaly, error) {
-    return nil, errors.New("Create anomaly not implemented yet")
-}
-
-func (r *anomalyRepository) GetByID(ctx context.Context, anomalyID uuid.UUID) (*model.Anomaly, error) {
-    return nil, errors.New("GetByID not implemented yet")
-}
-
+// GetAll retrieves all anomalies with pagination
 func (r *anomalyRepository) GetAll(ctx context.Context, limit, offset int) ([]model.Anomaly, int64, error) {
-    return nil, 0, errors.New("GetAll not implemented yet")
+    query := `
+        SELECT 
+            a.id, a.warehouse_id, a.sku_id, 
+            s.sku_code,
+            a.type, a.severity, a.description,
+            a.historical_average, a.detected_value, a.z_score,
+            a.status, a.resolution_notes, a.resolved_by, a.resolved_at,
+            a.detected_at, a.created_at, a.updated_at
+        FROM anomalies a
+        JOIN skus s ON a.sku_id = s.id
+        ORDER BY a.detected_at DESC
+        LIMIT $1 OFFSET $2
+    `
+
+    rows, err := r.db.QueryContext(ctx, query, limit, offset)
+    if err != nil {
+        return nil, 0, fmt.Errorf("failed to query anomalies: %w", err)
+    }
+    defer rows.Close()
+
+    var items []model.Anomaly
+    for rows.Next() {
+        var anom model.Anomaly
+        var resolutionNotes *string
+        var resolvedBy *uuid.UUID
+        var resolvedAt *time.Time
+
+        err := rows.Scan(
+            &anom.ID, &anom.WarehouseID, &anom.SKUID,
+            &anom.SKUCode,
+            &anom.Type, &anom.Severity, &anom.Description,
+            &anom.HistoricalAverage, &anom.DetectedValue, &anom.ZScore,
+            &anom.Status, &resolutionNotes, &resolvedBy, &resolvedAt,
+            &anom.DetectedAt, &anom.CreatedAt, &anom.UpdatedAt,
+        )
+        if err != nil {
+            return nil, 0, fmt.Errorf("failed to scan anomaly: %w", err)
+        }
+        anom.ResolutionNotes = resolutionNotes
+        anom.ResolvedBy = resolvedBy
+        anom.ResolvedAt = resolvedAt
+        items = append(items, anom)
+    }
+
+    if err = rows.Err(); err != nil {
+        return nil, 0, fmt.Errorf("rows iteration error: %w", err)
+    }
+
+    // Count total
+    var total int64
+    countQuery := `SELECT COUNT(*) FROM anomalies`
+    err = r.db.QueryRowContext(ctx, countQuery).Scan(&total)
+    if err != nil {
+        return nil, 0, fmt.Errorf("failed to count anomalies: %w", err)
+    }
+
+    return items, total, nil
 }
 
+// GetByID retrieves single anomaly by ID
+func (r *anomalyRepository) GetByID(ctx context.Context, anomalyID uuid.UUID) (*model.Anomaly, error) {
+    query := `
+        SELECT 
+            a.id, a.warehouse_id, a.sku_id, 
+            s.sku_code,
+            a.type, a.severity, a.description,
+            a.historical_average, a.detected_value, a.z_score,
+            a.status, a.resolution_notes, a.resolved_by, a.resolved_at,
+            a.detected_at, a.created_at, a.updated_at
+        FROM anomalies a
+        JOIN skus s ON a.sku_id = s.id
+        WHERE a.id = $1
+    `
+
+    var anom model.Anomaly
+    var resolutionNotes *string
+    var resolvedBy *uuid.UUID
+    var resolvedAt *time.Time
+
+    err := r.db.QueryRowContext(ctx, query, anomalyID).Scan(
+        &anom.ID, &anom.WarehouseID, &anom.SKUID,
+        &anom.SKUCode,
+        &anom.Type, &anom.Severity, &anom.Description,
+        &anom.HistoricalAverage, &anom.DetectedValue, &anom.ZScore,
+        &anom.Status, &resolutionNotes, &resolvedBy, &resolvedAt,
+        &anom.DetectedAt, &anom.CreatedAt, &anom.UpdatedAt,
+    )
+    if err != nil {
+        return nil, fmt.Errorf("failed to get anomaly by ID: %w", err)
+    }
+
+    anom.ResolutionNotes = resolutionNotes
+    anom.ResolvedBy = resolvedBy
+    anom.ResolvedAt = resolvedAt
+
+    return &anom, nil
+}
+
+// GetOpen retrieves all open/unresolved anomalies
 func (r *anomalyRepository) GetOpen(ctx context.Context, limit, offset int) ([]model.Anomaly, int64, error) {
-    return nil, 0, errors.New("GetOpen not implemented yet")
+    query := `
+        SELECT 
+            a.id, a.warehouse_id, a.sku_id, 
+            s.sku_code,
+            a.type, a.severity, a.description,
+            a.historical_average, a.detected_value, a.z_score,
+            a.status, a.resolution_notes, a.resolved_by, a.resolved_at,
+            a.detected_at, a.created_at, a.updated_at
+        FROM anomalies a
+        JOIN skus s ON a.sku_id = s.id
+        WHERE a.status = 'open'
+        ORDER BY a.detected_at DESC
+        LIMIT $1 OFFSET $2
+    `
+
+    rows, err := r.db.QueryContext(ctx, query, limit, offset)
+    if err != nil {
+        return nil, 0, fmt.Errorf("failed to query open anomalies: %w", err)
+    }
+    defer rows.Close()
+
+    var items []model.Anomaly
+    for rows.Next() {
+        var anom model.Anomaly
+        var resolutionNotes *string
+        var resolvedBy *uuid.UUID
+        var resolvedAt *time.Time
+
+        err := rows.Scan(
+            &anom.ID, &anom.WarehouseID, &anom.SKUID,
+            &anom.SKUCode,
+            &anom.Type, &anom.Severity, &anom.Description,
+            &anom.HistoricalAverage, &anom.DetectedValue, &anom.ZScore,
+            &anom.Status, &resolutionNotes, &resolvedBy, &resolvedAt,
+            &anom.DetectedAt, &anom.CreatedAt, &anom.UpdatedAt,
+        )
+        if err != nil {
+            return nil, 0, fmt.Errorf("failed to scan anomaly: %w", err)
+        }
+        anom.ResolutionNotes = resolutionNotes
+        anom.ResolvedBy = resolvedBy
+        anom.ResolvedAt = resolvedAt
+        items = append(items, anom)
+    }
+
+    if err = rows.Err(); err != nil {
+        return nil, 0, fmt.Errorf("rows iteration error: %w", err)
+    }
+
+    var total int64
+    countQuery := `SELECT COUNT(*) FROM anomalies WHERE status = 'open'`
+    err = r.db.QueryRowContext(ctx, countQuery).Scan(&total)
+    if err != nil {
+        return nil, 0, fmt.Errorf("failed to count open anomalies: %w", err)
+    }
+
+    return items, total, nil
 }
 
+// UpdateStatus updates anomaly status (acknowledge or resolve)
 func (r *anomalyRepository) UpdateStatus(ctx context.Context, anomalyID uuid.UUID, status model.AnomalyStatus, notes string, resolvedBy uuid.UUID) error {
-    return errors.New("UpdateStatus not implemented yet")
+    query := `
+        UPDATE anomalies 
+        SET status = $1, 
+            resolution_notes = $2,
+            resolved_by = $3,
+            resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE NULL END,
+            updated_at = NOW()
+        WHERE id = $4
+    `
+    result, err := r.db.ExecContext(ctx, query, status, notes, resolvedBy, anomalyID)
+    if err != nil {
+        return fmt.Errorf("failed to update anomaly status: %w", err)
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("failed to get rows affected: %w", err)
+    }
+    if rowsAffected == 0 {
+        return fmt.Errorf("anomaly not found")
+    }
+    return nil
 }
 
+// Create inserts new anomaly record (placeholder)
+func (r *anomalyRepository) Create(ctx context.Context, anomaly *model.Anomaly) (*model.Anomaly, error) {
+    return nil, fmt.Errorf("Create anomaly not implemented yet")
+}
+
+// GetBySKU retrieves anomalies for a specific SKU (placeholder)
 func (r *anomalyRepository) GetBySKU(ctx context.Context, skuID uuid.UUID, limit, offset int) ([]model.Anomaly, int64, error) {
-    return nil, 0, errors.New("GetBySKU not implemented yet")
+    return nil, 0, fmt.Errorf("GetBySKU not implemented yet")
 }

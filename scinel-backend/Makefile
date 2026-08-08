@@ -52,6 +52,10 @@ dev:
 
 run:
 	@echo "Running backend..."
+	bash -c "set -a && source .env.local && set +a && go run ./cmd/api"
+	@echo "Running backend..."
+	set -a && . ./.env.local && set +a && go run ./cmd/api
+	@echo "Running backend..."
 	go run ./cmd/api
 
 test:

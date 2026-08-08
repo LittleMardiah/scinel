@@ -1,149 +1,162 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
-    "github.com/go-redis/redis/v8"
+	"github.com/go-redis/redis/v8"
 
-    "github.com/LittleMardiah/scinel/internal/config"
-    "github.com/LittleMardiah/scinel/internal/database"
-    "github.com/LittleMardiah/scinel/internal/handler"
-    "github.com/LittleMardiah/scinel/internal/middleware"
-    "github.com/LittleMardiah/scinel/internal/repository"
-    "github.com/LittleMardiah/scinel/internal/service"
-    "github.com/LittleMardiah/scinel/internal/util"
-    "github.com/LittleMardiah/scinel/pkg/logger"
+	"github.com/LittleMardiah/scinel/internal/config"
+	"github.com/LittleMardiah/scinel/internal/database"
+	"github.com/LittleMardiah/scinel/internal/handler"
+	"github.com/LittleMardiah/scinel/internal/middleware"
+	"github.com/LittleMardiah/scinel/internal/repository"
+	"github.com/LittleMardiah/scinel/internal/service"
+	"github.com/LittleMardiah/scinel/internal/util"
+	"github.com/LittleMardiah/scinel/pkg/logger"
 )
 
 func main() {
-    // 1. Load Configuration.
-    cfg, err := config.LoadConfig()
-    if err != nil {
-        log.Fatalf("Failed to load config: %v", err)
-    }
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 
-    // 2. Initialize Logger
-    appLogger := logger.NewLogger(cfg.Logging.Level)
-    appLogger.Info("Starting ScIntel application",
-        "environment", cfg.Environment,
-        "port", cfg.Server.Port,
-    )
+	appLogger := logger.NewLogger(cfg.Logging.Level)
+	appLogger.Info("Starting ScIntel application",
+		"environment", cfg.Environment,
+		"port", cfg.Server.Port,
+	)
 
-    // 3. Initialize Database Connection
-    db, err := database.NewConnection(cfg.Database)
-    if err != nil {
-        appLogger.Error("Failed to connect to database", "error", err.Error())
-        os.Exit(1)
-    }
-    defer db.Close()
-    appLogger.Info("Database connection established")
+	db, err := database.NewConnection(cfg.Database)
+	if err != nil {
+		appLogger.Error("Failed to connect to database", "error", err.Error())
+		os.Exit(1)
+	}
+	defer db.Close()
+	appLogger.Info("Database connection established")
 
-    // 4. Initialize Redis Client
-    redisClient := redis.NewClient(&redis.Options{
-        Addr:     "localhost:6380", // Sesuai .env.local
-        Password: "",
-        DB:       0,
-    })
-    if err := redisClient.Ping(context.Background()).Err(); err != nil {
-        appLogger.Warn("Failed to connect to Redis", "error", err.Error())
-    } else {
-        appLogger.Info("Redis connection established")
-    }
-    defer redisClient.Close()
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6380"
+	}
+	opt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		appLogger.Warn("Failed to parse REDIS_URL, using default", "error", err.Error())
+		opt = &redis.Options{
+			Addr: "localhost:6380",
+			DB:   0,
+		}
+	}
+	redisClient := redis.NewClient(opt)
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		appLogger.Warn("Failed to connect to Redis", "error", err.Error())
+	} else {
+		appLogger.Info("Redis connection established")
+	}
+	defer redisClient.Close()
 
-    // 5. Initialize JWT Manager
-    jwtManager := util.NewJWTManager(
-        cfg.JWT.SecretKey,
-        cfg.JWT.AccessExpiry,
-        cfg.JWT.RefreshExpiry,
-    )
+	jwtManager := util.NewJWTManager(
+		cfg.JWT.SecretKey,
+		cfg.JWT.AccessExpiry,
+		cfg.JWT.RefreshExpiry,
+	)
 
-    // 6. Initialize Repositories
-    userRepo := repository.NewUserRepository(db)
-    forecastRepo := repository.NewForecastRepository(db)
-    invRepo := repository.NewInventoryRepository(db) // placeholder
+	userRepo := repository.NewUserRepository(db)
+	forecastRepo := repository.NewForecastRepository(db)
+	invRepo := repository.NewInventoryRepository(db)
+	anomalyRepo := repository.NewAnomalyRepository(db)
+	apiKeyRepo := repository.NewAPIKeyRepository(db)
+	webhookRepo := repository.NewWebhookRepository(db)
 
-    // 7. Initialize Services
-    forecastSvc := service.NewForecastService(forecastRepo, invRepo, appLogger)
+	forecastSvc := service.NewForecastService(forecastRepo, invRepo, appLogger)
 
-    // 8. Initialize Handlers
-    authHandler := handler.NewAuthHandler(userRepo, jwtManager, cfg)
-    healthHandler := handler.NewHealthHandler(db, redisClient)
-    forecastHandler := handler.NewForecastHandler(forecastRepo, forecastSvc, redisClient)
+	authHandler := handler.NewAuthHandler(userRepo, jwtManager, cfg)
+	healthHandler := handler.NewHealthHandler(db, redisClient)
+	forecastHandler := handler.NewForecastHandler(forecastRepo, forecastSvc, redisClient)
+	inventoryHandler := handler.NewInventoryHandler(invRepo, nil)
+	anomalyHandler := handler.NewAnomalyHandler(anomalyRepo)
+	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyRepo)
+	webhookHandler := handler.NewWebhookHandler(webhookRepo)
 
-    // 9. Setup Router
-    mux := http.NewServeMux()
+	mux := http.NewServeMux()
 
-    // Public routes
-    mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
-    mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
-    mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
-    mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
+	// Auth
+	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
+	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
+	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 
-    // Health endpoints
-    mux.HandleFunc("GET /api/v1/health", healthHandler.Health)
-    mux.HandleFunc("GET /api/v1/readiness", healthHandler.Readiness)
-    mux.HandleFunc("GET /api/v1/liveness", healthHandler.Liveness)
-    mux.HandleFunc("GET /health", healthHandler.Health)
-    mux.HandleFunc("GET /ready", healthHandler.Readiness)
+	// Health
+	mux.HandleFunc("GET /api/v1/health", healthHandler.Health)
+	mux.HandleFunc("GET /api/v1/readiness", healthHandler.Readiness)
+	mux.HandleFunc("GET /api/v1/liveness", healthHandler.Liveness)
 
-    // Forecast endpoints
-    mux.HandleFunc("GET /api/v1/forecasts", forecastHandler.QueryForecasts)
-    mux.HandleFunc("POST /api/v1/forecasts/generate", forecastHandler.GenerateForecasts)
-    mux.HandleFunc("GET /api/v1/forecasts/accuracy", forecastHandler.GetAccuracy)
+	// Inventory
+	mux.HandleFunc("GET /api/v1/inventory", inventoryHandler.QueryInventory)
+	mux.HandleFunc("POST /api/v1/transactions", inventoryHandler.CreateTransaction)
+	mux.HandleFunc("GET /api/v1/transactions", inventoryHandler.QueryTransactions)
+	mux.HandleFunc("GET /api/v1/inventory/{warehouse_id}", inventoryHandler.GetWarehouseInventory)
+	mux.HandleFunc("POST /api/v1/inventory/import", inventoryHandler.ImportInventory)
 
-    // Protected routes example
-    mux.HandleFunc("GET /api/v1/protected", func(w http.ResponseWriter, r *http.Request) {
-        userInfo, ok := r.Context().Value(middleware.UserContextKey).(*middleware.UserInfo)
-        if !ok {
-            w.WriteHeader(http.StatusInternalServerError)
-            return
-        }
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusOK)
-        w.Write([]byte(fmt.Sprintf(`{"message":"Hello %s, you have role: %s"}`, userInfo.Email, userInfo.Role)))
-    })
+	// Forecast
+	mux.HandleFunc("GET /api/v1/forecasts", forecastHandler.QueryForecasts)
+	mux.HandleFunc("POST /api/v1/forecasts/generate", forecastHandler.GenerateForecasts)
+	mux.HandleFunc("GET /api/v1/forecasts/accuracy", forecastHandler.GetAccuracy)
 
-    // 10. Apply Global Middleware
-    handlerWithMiddleware := middleware.CORSMiddleware(
-        middleware.SecurityHeaders(
-            middleware.AuthMiddleware(jwtManager)(mux),
-        ),
-    )
+	// Anomaly
+	mux.HandleFunc("GET /api/v1/anomalies", anomalyHandler.ListAnomalies)
+	mux.HandleFunc("GET /api/v1/anomalies/{id}", anomalyHandler.GetAnomaly)
+	mux.HandleFunc("PUT /api/v1/anomalies/{id}", anomalyHandler.UpdateAnomalyStatus)
+	mux.HandleFunc("GET /api/v1/anomalies/{id}/history", anomalyHandler.GetAnomalyHistory)
 
-    // 11. Create HTTP Server
-    server := &http.Server{
-        Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-        Handler:      handlerWithMiddleware,
-        ReadTimeout:  cfg.Server.ReadTimeout,
-        WriteTimeout: cfg.Server.WriteTimeout,
-    }
+	// API Keys
+	mux.HandleFunc("POST /api/v1/api-keys", apiKeyHandler.CreateAPIKey)
+	mux.HandleFunc("GET /api/v1/api-keys", apiKeyHandler.ListAPIKeys)
+	mux.HandleFunc("DELETE /api/v1/api-keys/{id}", apiKeyHandler.RevokeAPIKey)
+	mux.HandleFunc("POST /api/v1/api-keys/{id}/rotate", apiKeyHandler.RotateAPIKey)
 
-    // 12. Start Server
-    go func() {
-        appLogger.Info("HTTP server listening", "address", server.Addr)
-        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            appLogger.Error("Server error", "error", err.Error())
-        }
-    }()
+	// Webhooks
+	mux.HandleFunc("POST /api/v1/webhooks/subscribe", webhookHandler.CreateSubscription)
+	mux.HandleFunc("GET /api/v1/webhooks/subscriptions", webhookHandler.ListSubscriptions)
+	mux.HandleFunc("DELETE /api/v1/webhooks/subscriptions/{id}", webhookHandler.DeleteSubscription)
+	mux.HandleFunc("GET /api/v1/webhooks/deliveries", webhookHandler.ListDeliveries)
 
-    // 13. Graceful Shutdown
-    sigChan := make(chan os.Signal, 1)
-    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-    <-sigChan
+	handlerWithMiddleware := middleware.CORSMiddleware(
+		middleware.SecurityHeaders(
+			middleware.AuthMiddleware(jwtManager)(mux),
+		),
+	)
 
-    appLogger.Info("Shutdown signal received, shutting down gracefully...")
-    ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-    defer cancel()
+	server := &http.Server{
+		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+		Handler:      handlerWithMiddleware,
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
+	}
 
-    if err := server.Shutdown(ctx); err != nil {
-        appLogger.Error("Server forced to shutdown", "error", err.Error())
-    }
-    appLogger.Info("Server shutdown complete")
+	go func() {
+		appLogger.Info("HTTP server listening", "address", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			appLogger.Error("Server error", "error", err.Error())
+		}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	appLogger.Info("Shutdown signal received, shutting down gracefully...")
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		appLogger.Error("Server forced to shutdown", "error", err.Error())
+	}
+	appLogger.Info("Server shutdown complete")
 }

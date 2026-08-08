@@ -12,6 +12,8 @@ type Inventory struct {
     WarehouseID       uuid.UUID  `db:"warehouse_id"`
     SKUID             uuid.UUID  `db:"sku_id"`
     SKUCode           string     `db:"sku_code"`           // e.g., "SKU-NIKE-001"
+    WarehouseName     string     `db:"-"`                  // NOT from DB, filled by JOIN
+    SKUName           string     `db:"-"`                  // NOT from DB, filled by JOIN
     Quantity          int32      `db:"quantity"`
     ReorderPoint      int32      `db:"reorder_point"`      // Trigger for low-stock alerts
     MaxStockLevel     int32      `db:"max_stock_level"`    // Safety cap
