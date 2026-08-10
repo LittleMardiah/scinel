@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
 'use client';
+import { cn } from "@/lib/utils";
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -10,7 +10,7 @@ import { Pagination } from '@/components/common/Pagination';
 import { Button } from '@/components/common/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { Plus, RefreshCw } from 'lucide-react';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 const ITEMS_PER_PAGE = 20;
 

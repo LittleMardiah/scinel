@@ -16,7 +16,7 @@ interface TransactionData {
   type: 'in' | 'out';
   quantity: number;
   warehouse_id: string;
-  notes?: string;
+  reason: string; // ← required
 }
 
 export function TransactionForm({ onSubmit, isLoading, error }: TransactionFormProps) {
@@ -25,6 +25,7 @@ export function TransactionForm({ onSubmit, isLoading, error }: TransactionFormP
     type: 'in',
     quantity: 0,
     warehouse_id: '',
+    reason: '',
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -34,13 +35,14 @@ export function TransactionForm({ onSubmit, isLoading, error }: TransactionFormP
     if (!formData.sku_code) {
       errors.sku_code = 'Kode SKU diperlukan';
     }
-
     if (formData.quantity <= 0) {
       errors.quantity = 'Kuantitas harus lebih dari 0';
     }
-
     if (!formData.warehouse_id) {
       errors.warehouse_id = 'Gudang diperlukan';
+    }
+    if (!formData.reason) {
+      errors.reason = 'Alasan diperlukan';
     }
 
     setFormErrors(errors);
@@ -54,9 +56,9 @@ export function TransactionForm({ onSubmit, isLoading, error }: TransactionFormP
   };
 
   const warehouseOptions = [
-    { value: 'jakarta', label: 'Jakarta' },
-    { value: 'bandung', label: 'Bandung' },
-    { value: 'surabaya', label: 'Surabaya' },
+    { value: '62c35799-3209-4f64-85fc-4103557f5295', label: 'Jakarta' },
+    { value: '4c8eb0e8-7552-4bf8-be26-d6471dd0d84c', label: 'Bandung' },
+    { value: '95ed25d3-c64b-4307-af3c-ef2cb93dd459', label: 'Surabaya' },
   ];
 
   const typeOptions = [
@@ -126,16 +128,16 @@ export function TransactionForm({ onSubmit, isLoading, error }: TransactionFormP
       </div>
 
       <div>
-        <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Catatan (opsional)
+        <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Alasan
         </label>
-        <textarea
-          id="notes"
-          placeholder="Tambahkan catatan transaksi"
-          value={formData.notes || ''}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:focus:border-blue-400"
-          rows={3}
+        <Input
+          id="reason"
+          type="text"
+          placeholder="Masukkan alasan transaksi"
+          value={formData.reason}
+          onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+          error={formErrors.reason}
         />
       </div>
 

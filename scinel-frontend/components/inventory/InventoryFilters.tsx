@@ -45,7 +45,7 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
         <Select
           options={warehouses}
           value={warehouseId}
-          onChange={(e) => onWarehouseChange(e.target.value)}
+          onChange={(value) => onWarehouseChange(value)}
           placeholder="Pilih gudang"
         />
       </div>
@@ -57,7 +57,7 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
         <Select
           options={statusOptions}
           value={status}
-          onChange={(e) => onStatusChange(e.target.value)}
+          onChange={(value) => onStatusChange(value)}
           placeholder="Pilih status"
         />
       </div>

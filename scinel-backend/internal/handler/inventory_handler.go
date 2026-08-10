@@ -8,6 +8,7 @@ import (
     "time"
 
     "github.com/google/uuid"
+    "github.com/LittleMardiah/scinel/internal/database"
     "github.com/LittleMardiah/scinel/internal/middleware"
     "github.com/LittleMardiah/scinel/internal/model"
     "github.com/LittleMardiah/scinel/internal/repository"
@@ -18,10 +19,11 @@ import (
 type InventoryHandler struct {
     invRepo repository.InventoryRepository
     txnRepo repository.TransactionRepository
+    db      *database.DB
 }
 
-func NewInventoryHandler(invRepo repository.InventoryRepository, txnRepo repository.TransactionRepository) *InventoryHandler {
-    return &InventoryHandler{invRepo: invRepo, txnRepo: txnRepo}
+func NewInventoryHandler(invRepo repository.InventoryRepository, txnRepo repository.TransactionRepository, db *database.DB) *InventoryHandler {
+    return &InventoryHandler{invRepo: invRepo, txnRepo: txnRepo, db: db}
 }
 
 // ==================== REQUEST/RESPONSE TYPES ====================
@@ -29,6 +31,7 @@ func NewInventoryHandler(invRepo repository.InventoryRepository, txnRepo reposit
 type createTransactionRequest struct {
     WarehouseID string          `json:"warehouse_id"`
     SKUID       string          `json:"sku_id"`
+    SKUCode     string          `json:"sku_code"`
     Type        string          `json:"type"`
     Quantity    int32           `json:"quantity"`
     Reason      string          `json:"reason"`
@@ -78,8 +81,9 @@ func (h *InventoryHandler) CreateTransaction(w http.ResponseWriter, r *http.Requ
         return
     }
 
-    if req.WarehouseID == "" || req.SKUID == "" || req.Type == "" || req.Quantity <= 0 {
-        util.WriteError(w, http.StatusBadRequest, "Missing required fields", "warehouse_id, sku_id, type, quantity (positive) required", requestID)
+    // Validate required fields
+    if req.WarehouseID == "" || req.Type == "" || req.Quantity <= 0 {
+        util.WriteError(w, http.StatusBadRequest, "Missing required fields", "warehouse_id, type, quantity (positive) required", requestID)
         return
     }
     if req.Type != "in" && req.Type != "out" {
@@ -91,14 +95,35 @@ func (h *InventoryHandler) CreateTransaction(w http.ResponseWriter, r *http.Requ
         return
     }
 
+    // Parse warehouse_id
     warehouseUUID, err := uuid.Parse(req.WarehouseID)
     if err != nil {
         util.WriteError(w, http.StatusBadRequest, "Invalid warehouse_id", err.Error(), requestID)
         return
     }
-    skuUUID, err := uuid.Parse(req.SKUID)
-    if err != nil {
-        util.WriteError(w, http.StatusBadRequest, "Invalid sku_id", err.Error(), requestID)
+
+    // Get sku_id from either sku_id or sku_code
+    var skuUUID uuid.UUID
+    if req.SKUID != "" {
+        skuUUID, err = uuid.Parse(req.SKUID)
+        if err != nil {
+            util.WriteError(w, http.StatusBadRequest, "Invalid sku_id", err.Error(), requestID)
+            return
+        }
+    } else if req.SKUCode != "" {
+        var skuID string
+        err = h.db.QueryRowContext(r.Context(), "SELECT id FROM skus WHERE sku_code = $1", req.SKUCode).Scan(&skuID)
+        if err != nil {
+            util.WriteError(w, http.StatusBadRequest, "SKU code not found", req.SKUCode, requestID)
+            return
+        }
+        skuUUID, err = uuid.Parse(skuID)
+        if err != nil {
+            util.WriteError(w, http.StatusInternalServerError, "Invalid SKU ID from database", err.Error(), requestID)
+            return
+        }
+    } else {
+        util.WriteError(w, http.StatusBadRequest, "Missing sku_id or sku_code", "", requestID)
         return
     }
 

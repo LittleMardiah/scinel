@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/common/Skeleton';
 import { RefreshCw, Zap, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Toast } from '@/components/common/Toast';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 const warehouseOptions = [
   { value: '', label: 'Semua Gudang' },

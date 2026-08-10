@@ -8,11 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Ca
 import { Button } from '@/components/common/Button';
 import { ArrowLeft } from 'lucide-react';
 import { Toast } from '@/components/common/Toast';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 interface TransactionFormData {
   warehouse_id: string;
-  sku_id: string;
+  sku_code: string;      // ← diubah dari sku_id ke sku_code
   type: 'in' | 'out';
   quantity: number;
   reason: string;
@@ -31,14 +31,13 @@ export default function NewTransactionPage() {
     try {
       const response = await apiClient.post('/transactions', {
         warehouse_id: data.warehouse_id,
-        sku_id: data.sku_id,
+        sku_code: data.sku_code,    // ← sku_code (sesuai backend)
         type: data.type,
         quantity: data.quantity,
         reason: data.reason,
         details: data.details,
       });
 
-      // Success
       Toast.success('Transaksi berhasil dibuat!');
       router.push('/inventory/transactions');
     } catch (err: any) {

@@ -9,7 +9,7 @@ import {
   ReactNode,
 } from 'react';
 import Cookies from 'js-cookie';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 export interface User {
   id: string;
@@ -96,7 +96,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await apiClient.post('/auth/logout');
+      const refreshToken = Cookies.get('refresh_token');
+      if (refreshToken) {
+        await apiClient.post('/auth/logout', { refresh_token: refreshToken });
+      }
+    } catch (error) {
+      console.warn('Logout error:', error);
     } finally {
       Cookies.remove('access_token');
       Cookies.remove('refresh_token');

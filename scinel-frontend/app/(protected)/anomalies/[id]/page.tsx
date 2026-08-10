@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/common/Skeleton';
 import { Badge } from '@/components/ui/Badge';
 import { ArrowLeft, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { Toast } from '@/components/common/Toast';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 export default function AnomalyDetailPage() {
   const params = useParams();

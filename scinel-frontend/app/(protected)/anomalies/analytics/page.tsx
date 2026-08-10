@@ -6,7 +6,7 @@ import { Button } from '@/components/common/Button';
 import { Skeleton } from '@/components/common/Skeleton';
 import { RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 import {
   AreaChart,
   Area,

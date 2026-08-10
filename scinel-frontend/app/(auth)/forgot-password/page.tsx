@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm';
 import { Toast } from '@/components/common/Toast';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 export default function ForgotPasswordPage() {
   const [isLoading, setIsLoading] = useState(false);

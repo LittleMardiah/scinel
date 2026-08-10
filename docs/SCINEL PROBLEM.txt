@@ -1,0 +1,129 @@
+========================================
+PROBLEM: JEST CANNOT FIND/RUN A SPECIFIC TEST FILE
+========================================
+
+ENVIRONMENT:
+- OS: Ubuntu WSL (Windows Subsystem for Linux)
+- Project: Next.js 14.2.5, TypeScript, Jest, React Testing Library
+- Package manager: pnpm
+- Test runner: Jest
+
+CURRENT STATUS:
+- Total test suites: 72
+- Passing: 71
+- Failing: 1 (tests/app/(protected)/layout.test.tsx)
+- Total tests: 114 passing, 1 failing (if run)
+
+THE PROBLEM:
+The test file `tests/app/(protected)/layout.test.tsx` cannot be found/executed by Jest.
+When running:
+  pnpm test -- tests/app/(protected)/layout.test.tsx --verbose
+
+Output:
+  No tests found, exiting with code 1
+  Pattern: tests/app/(protected)/layout.test.tsx|--verbose - 0 matches
+
+The file EXISTS (verified with ls -la), but Jest cannot match the path because of the parentheses `(protected)` in the folder name. The parentheses are interpreted as regex group characters, causing the path to be treated as a pattern instead of a literal path.
+
+WHAT HAS BEEN TRIED (ALL FAILED):
+1. Running with full path: `pnpm test -- tests/app/(protected)/layout.test.tsx --verbose`
+   → No tests found (pattern mismatch)
+
+2. Running with --testPathPattern: `pnpm test -- --testPathPattern="layout.test.tsx" --verbose`
+   → No tests found (same issue)
+
+3. Escaping parentheses with backslashes: `tests/app/\(protected\)/layout.test.tsx`
+   → Still no match
+
+4. Using double quotes around the path: `"tests/app/(protected)/layout.test.tsx"`
+   → No match
+
+5. Writing the file with echo (baris per baris) to ensure it's not corrupted
+   → File exists and contains valid test code, but Jest still won't run it
+
+THE FILE CONTENT (tests/app/(protected)/layout.test.tsx):
+----------------------------------------------------------------
+import { render, screen } from "@testing-library/react";
+import ProtectedLayout from "@/app/(protected)/layout";
+import { describe, it, expect, jest } from "@jest/globals";
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: jest.fn(),
+    pathname: "/dashboard",
+  }),
+  usePathname: () => "/dashboard",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+jest.mock("@/context/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: "1", email: "test@test.com", role: "admin" },
+    isAuthenticated: true,
+    isLoading: false,
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+jest.mock("@/context/ThemeContext", () => ({
+  useTheme: () => ({
+    theme: "light",
+    setTheme: jest.fn(),
+    isDark: false,
+  }),
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+jest.mock("@/components/ui/ThemeToggle", () => ({
+  ThemeToggle: () => <button data-testid="theme-toggle">Toggle Theme</button>,
+}));
+
+describe("ProtectedLayout", () => {
+  it("should render children", () => {
+    render(
+      <ProtectedLayout>
+        <div data-testid="test-child">Test Child</div>
+      </ProtectedLayout>
+    );
+    expect(screen.getByTestId("test-child")).toBeInTheDocument();
+    expect(screen.getByText("Test Child")).toBeInTheDocument();
+  });
+});
+----------------------------------------------------------------
+
+VERIFICATION COMMANDS EXECUTED:
+------------------------------------------------------------
+# Check if file exists
+ls -la tests/app/\(protected\)/layout.test.tsx
+# Output: -rwxrwxrwx ... tests/app/(protected)/layout.test.tsx ✅
+
+# Try to run with pattern
+pnpm test -- --testPathPattern="layout.test.tsx" --verbose
+# Output: No tests found, exiting with code 1 ❌
+
+# Try to run with escaped path
+pnpm test -- tests/app/\(protected\)/layout.test.tsx --verbose
+# Output: No tests found ❌
+
+# Run all tests (to see if it's included)
+pnpm test
+# Output: 1 failed, 71 passed (the failing one is this layout.test.tsx) ❌
+
+WHAT WE NEED:
+A reliable way to make Jest recognize and execute this test file.
+Possible solutions:
+1. How to properly escape or quote the path containing parentheses?
+2. Should we rename the folder (remove parentheses) and update imports?
+3. Is there a Jest configuration change needed (e.g., testMatch, testRegex)?
+4. Can we use a different approach to run this specific test?
+
+We need a STEP-BY-STEP solution that works in WSL environment.
+
+========================================
+END OF PROBLEM DESCRIPTION
+========================================

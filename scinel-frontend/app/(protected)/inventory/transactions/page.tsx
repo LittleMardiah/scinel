@@ -11,7 +11,7 @@ import { Input } from '@/components/common/Input';
 import { Plus, RefreshCw, Filter, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Toast } from '@/components/common/Toast';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 const ITEMS_PER_PAGE = 20;
 

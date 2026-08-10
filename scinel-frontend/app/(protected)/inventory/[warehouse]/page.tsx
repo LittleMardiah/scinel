@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/common/Skeleton';
 import { Package, AlertTriangle, Clock, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Toast } from '@/components/common/Toast';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 // Warehouse name mapping (would come from API in production)
 const WAREHOUSE_NAMES: Record<string, string> = {

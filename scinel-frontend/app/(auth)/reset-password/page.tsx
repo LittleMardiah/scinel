@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { ResetPasswordForm } from '@/components/auth/ResetPasswordForm';
 import { Toast } from '@/components/common/Toast';
-import apiClient from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
