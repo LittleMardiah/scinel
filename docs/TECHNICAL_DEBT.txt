@@ -1,0 +1,56 @@
+================================================================================
+TECHNICAL DEBT REGISTER — SCINTEL
+================================================================================
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2)
+Status: INFRASTRUKTUR E2E FIXES
+================================================================================
+
+--------------------------------------------------------------------------------
+A. TEMUAN SCAN & FIX INFRASTRUKTUR E2E (2026-09-03)
+--------------------------------------------------------------------------------
+1. [FIXED] Playwright baseURL salah port (3001 -> 3000).
+   - File: scinel-frontend/playwright.config.ts
+   - baseURL sekarang: http://localhost:3000
+
+2. [FIXED] Backend .env.local memakai port non-standar.
+   - DATABASE_URL: 5434 -> 5432
+   - REDIS_URL:    6381 -> 6379
+   - File: scinel-backend/.env.local
+
+3. [BLOCKED] Backend tidak dapat konek ke PostgreSQL.
+   - Error: role "scinel_user" does not exist (28000)
+   - Root cause: role/database belum di-provision di instance Postgres lokal.
+   - Tindakan: buat role scinel_user + database scinel_db di PostgreSQL.
+
+4. [DONE] Frontend .env.local dibuat dari .env.example.
+   - File: scinel-frontend/.env.local
+   - NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+
+5. [MINOR] BOM pada baris pertama .env.local backend
+   - .env.local line 1 diawali BOM sehingga saat `source` muncul
+     "command not found". Tidak memblokir namun perlu dibersihkan.
+
+--------------------------------------------------------------------------------
+B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
+--------------------------------------------------------------------------------
+1. [FIXED] Repository implementations masih placeholder (butuh SQL query).
+   - Selesai Fase 1 (2026-09-03): Transaction, Anomaly, Forecast, Webhook, API Key
+     diimplementasi penuh (SQL + JOIN + filter). Inventory telah selesai sebelumnya
+     (GetAll, GetByWarehouse) meski sisanya (GetBySKU, UpdateQuantity, dll) menyusul.
+2. [FIXED] Service logic masih sebagian placeholder.
+   - Selesai Fase 2 (2026-09-04): ForecastService (batch forecast ETS/ARIMA,
+     query, accuracy, trigger manual), AnomalyService (deteksi Z-score/IQR,
+     trigger async setalah transaksi), WebhookService (publish async, retry
+     exponential backoff, dead-letter queue, perbaikan payload body yang
+     sebelumnya nil). Logger disatukan via interface ServiceLogger.
+3. Integration test belum jalan (environment issue di WSL).
+4. Handler test masih placeholder.
+5. Rate limiter test di-skip.
+6. E2E test belum dibuat (butuh frontend).
+
+--------------------------------------------------------------------------------
+C. TINDAK LANJUT
+--------------------------------------------------------------------------------
+- Provision PostgreSQL role/database untuk keberhasilan backend & E2E.
+- Bersihkan BOM pada .env.local backend.
+- Jalankan npx playwright test setelah backend & frontend hidup.

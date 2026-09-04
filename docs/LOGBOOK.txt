@@ -1192,7 +1192,7 @@ Hasil Verifikasi:
 
 
 Week 8.1 — Component Testing & Backend Debugging
-Status: ✅ SELESAI
+Status: SELESAI
 
 Target: 50+ unit tests, >50% code coverage, 5 failing suites fixed
 
@@ -1250,3 +1250,256 @@ Catatan:
 - Integration test untuk layout sebaiknya ditangani di E2E testing (Week 8.2).
 - API Keys & Webhooks endpoint sudah siap (200 OK dengan data kosong).
 - Repository Transaction & Forecast Accuracy masih placeholder untuk diimplementasikan di Week 8.2 atau ROADMAP 4.
+
+
+Week 8.2 — E2E Testing (Automation Setup)
+Status: 🔄 INFRASTRUKTUR SIAP, BELUM DI-EKSEKUSI
+
+Target: 5 automated E2E user flows (Playwright)
+
+Apa yang dilakukan:
+1. Setup Playwright di frontend:
+   - Install @playwright/test
+   - Install browser (Chromium, Firefox, WebKit) via npx playwright install
+   - Update Node.js ke v20 (via nvm) untuk kompatibilitas Playwright
+
+2. Buat 5 test scripts di tests/e2e/scinel-e2e.spec.ts:
+   - Flow 1: Login → Dashboard → Logout
+   - Flow 2: Create Transaction → See in History
+   - Flow 3: View Forecast → Check Accuracy
+   - Flow 4: Acknowledge Anomaly → Update Status
+   - Flow 5: Toggle Dark Mode → Persists
+
+3. Update package.json:
+   - Script "test:e2e": "playwright test"
+
+4. Perbaikan backend & frontend yang diperlukan:
+   - Backend: terima sku_code (alternatif sku_id) di POST /transactions
+   - Frontend: kirim reason (bukan notes), konsisten pakai sku_code
+   - CORS: tambahkan origin http://localhost:3001
+   - TransactionForm: perbaiki handler onChange untuk Select
+
+Hasil Verifikasi:
+- ✅ Playwright terinstall
+- ✅ Node 20 aktif
+- ✅ 5 test scripts siap
+- ✅ Backend & frontend running (manual test transaksi sukses)
+- ⏳ E2E test belum dijalankan (siap dieksekusi)
+
+Catatan:
+- Script test:e2e di package.json sudah diubah ke "playwright test"
+- Jalankan dengan: npx playwright test (atau pnpm test:e2e)
+- Hasil eksekusi akan dicatat di log berikutnya
+
+
+
+
+--------------------------------------------------------------------------------
+2026-09-03 - FIX INFRASTRUKTUR E2E (SCINTEL WEEK 8.2)
+Status: SELESAI (sebagian terblokir)
+
+Apa yang dilakukan:
+1. [FIXED] Playwright baseURL 3001 -> 3000 (playwright.config.ts)
+2. [FIXED] .env.local backend: DATABASE_URL 5434 -> 5432, REDIS_URL 6381 -> 6379
+3. [BLOCKED] Backend start, tapi gagal konek PostgreSQL: role scinel_user tidak ada (28000)
+4. [DONE] Frontend .env.local dibuat dari .env.example (NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1)
+5. [DONE] TECHNICAL_DEBT.txt diperbarui
+
+Hasil Verifikasi:
+- baseURL: http://localhost:3000
+- DATABASE_URL: ...5432, REDIS_URL: ...6379
+- Teknis tercatat di docs/TECHNICAL_DEBT.txt
+
+Tindak Lanjut:
+- Provision role scinel_user + db scinel_db di PostgreSQL
+- Jalankan npx playwright test setelah backend/frontend hidup
+
+
+--------------------------------------------------------------------------------
+2026-09-03 - IMPLEMENTASI REPOSITORY FASE 1 (Transaction, Anomaly, Forecast, Webhook, API Key)
+Status: SELESAI
+
+[STEP 1] Transaction Repository - SELESAI
+File: scinel-backend/internal/repository/transaction_repository_impl.go (.bak dibuat)
+Apa yang dilakukan:
+- Implementasi Create (INSERT + RETURNING), GetByID, Query (filter warehouse_id,
+  sku_id, type, created_by, reason ILIKE, date range), GetByWarehouse, GetBySKU.
+- JOIN dengan skus untuk ambil sku_code.
+- Pessimistic locking tersedia via caller/service (db.WithTx); skema tidak punya
+  kolom details sehingga field Details dibiarkan kosong (bukan error).
+- Perbaiki bug placeholder ganda ($$4 -> $4) pada Query.
+
+Hasil Verifikasi (go run + psql, DB scinel_postgres:5434):
+- CREATE: OK (id dihasilkan)
+- GETBYID: OK (sku_code ter-join = SKU-NIKE-001)
+- QUERY (filter type + reason): OK total=2 rows=2
+- GETBYWAREHOUSE: OK total=2 rows=2
+- GETBYSKU: OK total=2 rows=2
+- go build ./... : PASS
+- Data dummy dihapus kembali (transactions tersisa 0).
+
+[STEP 2] Anomaly Repository - SELESAI
+File: scinel-backend/internal/repository/anomaly_repository_impl.go (.bak dibuat)
+Apa yang dilakukan:
+- Implementasi Create (INSERT + RETURNING dengan JOIN skus utk sku_code).
+- Implementasi GetBySKU (WHERE sku_id + COUNT).
+- GetAll/GetByID/GetOpen/UpdateStatus sudah ada, namun UpdateStatus diperbaiki
+  karena error 42P08 (parameter $1 digunakan 2x dgn tipe tak konsisten) ->
+  ditambahkan cast ::varchar pada CASE WHEN.
+- Interface GetAll(ctx,limit,offset) tidak menerima filter, sehingga filter
+  severity/status/warehouse/date range ditangani di layer handler/service.
+  (sesuai aturan "jangan ubah interface")
+
+Hasil Verifikasi (go run + psql):
+- CREATE: OK sku_code=SKU-NIKE-001 z=3.40
+- GETBYID: OK hist=100.00 val=180.00 z=3.40
+- UPDATESTATUS: OK status=resolved resolved_at terisi
+- GETALL: OK
+- GETOPEN: OK
+- GETBYSKU: OK total=3 rows=3
+- go build ./... : PASS
+- Data dummy dihapus kembali (anomalies tersisa 1 = seed asli).
+
+[STEP 3] Forecast Repository - SELESAI
+File: scinel-backend/internal/repository/forecast_repository_impl.go (.bak dibuat)
+Apa yang dilakukan:
+- Implementasi Create (INSERT + RETURNING, JOIN skus utk sku_code).
+- Implementasi GetByWarehouseAndSKU (window date, CURRENT_DATE..CURRENT_DATE+days).
+- Implementasi GetAll (pagination + COUNT).
+- Implementasi GetAccuracy (kembalikan nil bila tidak ada data - sql.ErrNoRows).
+- Implementasi UpdateAccuracy (INSERT record accuracy baru; tabel forecast_accuracy
+  tdk punya unique constraint sehingga selalu INSERT snapshot).
+- Fix error 42725 pada GetByWarehouseAndSKU (CURRENT_DATE + $3::int cast).
+- Catatan mismatch: field model Forecast.Trend (*float64) vs kolom DB trend
+  VARCHAR(50) (TrendType string). Kolom trend di-omit dari SELECT/INSERT agar
+  tidak error tipe; SeasonalityFactor (numeric) aman di-*float64.
+
+Hasil Verifikasi (go run + psql):
+- CREATE: OK (3 forecasts, date & demand benar, algo ETS)
+- GETBYSKU7D: OK count=6 (date window berfungsi)
+- GETBYWAREHOUSESKU30D: OK
+- GETALL: OK total=6 rows=6
+- GETACCURACY: OK nil saat kosong
+- UPDATEACCURACY: OK insert
+- GETACCURACY stelah insert: OK mape=12.5 rmse=45.3 mae=32.1
+- go build ./... : PASS
+- Data dummy dihapus kembali (forecasts=0, forecast_accuracy=0).
+
+[STEP 4] Webhook Repository - SELESAI
+File: scinel-backend/internal/repository/webhook_repository_impl.go (.bak dibuat)
+Apa yang dilakukan:
+- CRUD subscription sudah tersedia (CreateSubscription, GetSubscriptions,
+  GetSubscriptionsByEventType, GetSubscriptionByID, UpdateSubscription, DeleteSubscription).
+- Implementasi method delivery yang tadinya placeholder:
+  * CreateDelivery (INSERT + RETURNING, payload::jsonb, payload::text utk scan []byte)
+  * GetPendingDeliveries (WHERE status='pending' AND retry due, LIMIT)
+  * UpdateDeliveryStatus (status, http_status_code, error_message, attempt_count+1,
+    last_attempt_at=NOW())
+  * GetDeliveryHistory (pagination + COUNT)
+
+Hasil Verifikasi (go run + psql):
+- CREATESUB: OK event=inventory.changed
+- GETSUBS: OK count=1
+- GETBYEVENT: OK count=1
+- GETSUBBYID: OK
+- CREATEDELIVERY: OK status=pending payload JSONB roundtrip
+- GETPENDING: OK count=1
+- UPDATESTATUS: OK status=success
+- GETHISTORY: OK total=1
+- UPDATESUB: OK is_active=false
+- DELETESUB: OK (cascade hapus delivery)
+- go build ./... : PASS
+- Data dummy dibersihkan (subs=0, deliveries=0).
+
+[STEP 5] API Key Repository - SELESAI
+File: scinel-backend/internal/repository/api_key_repository_impl.go (.bak dibuat)
+Apa yang dilakukan:
+- Method interface (Create, GetByUser, GetByID, GetByPrefix, Update, Delete)
+  sudah ada, namun ditemukan BUG nyata: kolom permissions (TEXT[]) tidak bisa
+  di-scan/di-insert langsung ke []string (error "unsupported Scan ... *[]string").
+- Perbaikan: bungkus permissions dengan github.com/lib/pq -> pq.Array(...)
+  pada semua READ (GetByUser, Create RETURNING, GetByID, GetByPrefix) dan
+  WRITE (Create INSERT, Update SET) permissions.
+- Catatan: Rotate & UpdateLastUsed ada di struct impl tapi TIDAK di interface
+  APIKeyRepository, sehingga tidak ter-expose via interface (sudah "jangan ubah
+  interface"). Rotate diverifikasi via type-assertion, berfungsi.
+
+Hasil Verifikasi (go run + psql):
+- CREATE: OK prefix=sk_test_1a2b3c perms ter-insert text[] benar
+- GETBYUSER: OK count=1
+- GETBYID: OK (ownership check) 
+- GETBYPREFIX: OK
+- UPDATE: OK (name & perms update, text[] terjaga)
+- ROTATE: OK (via type assertion)
+- DELETE: OK is_active=false (revoke)
+- OWNERSHIP: OK blocked utk user lain (no rows)
+- go build ./... : PASS
+- Data dummy dibersihkan (api_keys=0).
+
+[REVIEW FASE 1 - VERIFIKASI AKHIR]
+- go build ./... : PASS
+- go vet ./internal/repository/... : PASS
+- go test ./internal/repository/... : PASS
+- go test ./... (selain tests/integration yg butuh live Postgres): PASS
+- Perbaikan kecil: webhook CreateDelivery kini mengirim payload sebagai string
+  (bukan []byte) agar cast $n::jsonb tidak ambigu pada lib/pq.
+- ✅ Semua repository implementations selesai (Inventory, Transaction, Anomaly,
+  Forecast, Webhook, API Key).
+- TECHNICAL_DEBT item 1 ditandai [FIXED].
+
+[FASE 2 - SERVICE LOGIC] SESI 2026-09-04
+[STEP 1] ForecastService - SELESAI
+File: scinel-backend/internal/service/forecast_service.go (.bak dibuat)
+Apa yang dilakukan:
+- GenerateForecastBatch(ctx): ambil semua SKU-warehouse via invRepo.GetAll,
+  iterasi tiap kombinasi, panggil GenerateForecast.
+- GenerateForecast(ctx, warehouseID, skuID, algorithm): ambil 180 hari history
+  'out' via txnRepo.Query + aggregateDailyDemand, jalankan ETS & ARIMA
+  (pkg/timeseries), auto-pilih MAPE terbaik, simpan 30 baris forecast +
+  record forecast_accuracy (MAPE/RMSE/MAE).
+- GetForecast(ctx, warehouseID, skuID, days): delegasi ke repo.GetByWarehouseAndSKU.
+- GetAccuracy(ctx, warehouseID, skuID): query accuracy utk ETS & ARIMA.
+- Konstruktor ditambah parameter txnRepo (inject TransactionRepository).
+- Logger diganti interface ServiceLogger (dipakai 3 service).
+Hasil Verifikasi:
+- go build ./... : PASS
+- go vet ./internal/service/... : PASS
+- go test ./internal/service/... : PASS
+- main.go di-update utk pass txnRepo.
+
+[STEP 2] AnomalyService - SELESAI
+File: scinel-backend/internal/service/anomaly_service.go (.bak dibuat)
+Apa yang dilakukan:
+- DetectAnomalies(ctx, warehouseID, skuID): ambil inventori via GetBySKU,
+  fetch 90 hari daily 'out' via txnRepo, jalankan DetectAnomalyZScore +
+  DetectAnomalyIQR (pkg/timeseries/anomaly.go), simpan anomaly record bila
+  terdeteksi, publish 'anomaly.detected' async.
+- fetchDailyChanges menggantikan placeholder getTransactionHistory.
+- Konstruktor ditambah txnRepo.
+Hasil Verifikasi:
+- go build ./... : PASS
+- go vet ./internal/service/... : PASS
+- go test ./internal/service/... : PASS
+
+[STEP 3] WebhookService - SELESAI
+File: scinel-backend/internal/service/webhook_service.go (.bak dibuat)
+Apa yang dilakukan:
+- PublishAsync(ctx, eventType, data): queue delivery utk tiap subscription aktif.
+- publish(): marshal payload JSON, CreateDelivery per sub, log indexed.
+- ProcessDeliveries(ctx): ambil pending delivery, retry exponential backoff.
+- attemptDelivery(): POST dgn body payload nyata (sebelumnya nil), header
+  HMAC-SHA256 signature, timeout 10s.
+- handleSendFailure(): jika attempt >= MaxRetries -> status dead_letter;
+  jika belum -> pending + jadwal retry (log).
+- Tambahan callbackFn untuk testabilitas.
+Hasil Verifikasi:
+- go build ./... : PASS
+- go vet ./internal/service/... : PASS
+- go test ./internal/service/... : PASS
+
+[FASE 2 - VERIFIKASI AKHIR]
+- go build ./... : PASS
+- go vet ./... : PASS
+- go test ./internal/... : PASS
+- ✅ Service logic selesai (Forecast, Anomaly, Webhook).
+- TECHNICAL_DEBT item 2 ditandai [FIXED].

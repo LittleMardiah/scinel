@@ -73,13 +73,13 @@ func main() {
 	anomalyRepo := repository.NewAnomalyRepository(db)
 	apiKeyRepo := repository.NewAPIKeyRepository(db)
 	webhookRepo := repository.NewWebhookRepository(db)
+	txnRepo := repository.NewTransactionRepository(db)
 
-	forecastSvc := service.NewForecastService(forecastRepo, invRepo, appLogger)
+	forecastSvc := service.NewForecastService(forecastRepo, invRepo, txnRepo, appLogger)
 
 	authHandler := handler.NewAuthHandler(userRepo, jwtManager, cfg)
 	healthHandler := handler.NewHealthHandler(db, redisClient)
 	forecastHandler := handler.NewForecastHandler(forecastRepo, forecastSvc, redisClient)
-	txnRepo := repository.NewTransactionRepository(db)
 	inventoryHandler := handler.NewInventoryHandler(invRepo, txnRepo, db)
 	anomalyHandler := handler.NewAnomalyHandler(anomalyRepo)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyRepo)
