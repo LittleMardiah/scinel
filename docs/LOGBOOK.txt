@@ -1503,3 +1503,96 @@ Hasil Verifikasi:
 - go test ./internal/... : PASS
 - ✅ Service logic selesai (Forecast, Anomaly, Webhook).
 - TECHNICAL_DEBT item 2 ditandai [FIXED].
+
+[FASE 3 - HANDLER TESTS, INTEGRATION TESTS, RATE LIMITER] SESI 2026-09-04
+[STEP 1] Backup file yang akan diubah - SELESAI
+Backup dibuat dengan timestamp 20260904_075119 (.bak_20260904_075119):
+- internal/handler/*_handler_test.go (anomaly, api_key, forecast, health,
+  inventory, webhook)
+- internal/middleware/rate_limit_test.go
+- tests/integration/auth_flow_test.go
+Catatan: auth_handler_test.go tidak pernah ada (placeholder tidak tersedia
+sebelumnya), dibuat baru.
+
+[STEP 2] Handler tests dengan mock (testify/mock) - SELESAI
+File dibuat/diperbarui di internal/handler/:
+- mocks_test.go: MockUserRepository, MockInventoryRepository,
+  MockTransactionRepository, MockAnomalyRepository, MockAPIKeyRepository,
+  MockWebhookRepository (implementasi interface repository via testify/mock).
+  Provider: sqlmock untuk *database.DB, miniredis untuk *redis.Client.
+- auth_handler_test.go (BARU): Register (sukses, invalid json, email kosong,
+  password pendek, fullname kosong, email duplikat->409, repo error->500),
+  Login (sukses, invalid json, kredensial kosong, user tidak ada->401,
+  password salah->401, suspended->403, pending verif->403, status invalid->403),
+  Refresh (sukses, invalid json, token kosong, token invalid, user tidak ada,
+  user non-aktif), Logout (sukses, invalid json, token kosong, token invalid
+  tetap 200). Helper decodeResponse + newTestAuthHandler.
+- health_handler_test.go (GANTI placeholder): Health (200 healthy),
+  Readiness (semua sehat 200, db down 503), Liveness (200/503). Pakai
+  sqlmock (MonitorPingsOption) + miniredis.
+- inventory_handler_test.go (GANTI placeholder): CreateTransaction (sukses in,
+  unauthorized, invalid json, field kurang, type invalid, warehouse id invalid,
+  stock tidak cukup->409, inventory not found->404, get stock error->500,
+  lookup sku_code via sqlmock), QueryTransactions (sukses, error, dengan
+  filter), QueryInventory (by warehouse/sku/all, error), GetWarehouseInventory,
+  ImportInventory (placeholder 200). Async InvalidateCache di-flush 20ms.
+- forecast_handler_test.go (GANTI placeholder): QueryForecasts (generate
+  placeholder, pakai cache bila ada via miniredis), GenerateForecasts
+  (non-admin 403, admin 202, tanpa user 403), GetAccuracy (200 2 item).
+- anomaly_handler_test.go (GANTI placeholder): ListAnomalies (sukses, filter,
+  error), GetAnomaly (sukses, id hilang, id invalid, not found),
+  UpdateAnomalyStatus (acknowledge sukses, unauthorized, status invalid,
+  already resolved->409, open->resolved invalid->409, not found),
+  GetAnomalyHistory (timeline open, path invalid, not found).
+- api_key_handler_test.go (GANTI placeholder): CreateAPIKey (sukses,
+  unauthorized, name kosong, permissions kosong, permission invalid, error),
+  ListAPIKeys, RevokeAPIKey (sukses 204, unauthorized, id invalid, error),
+  RotateAPIKey (sukses, unauthorized, path invalid, not found, inactive->409).
+- webhook_handler_test.go (GANTI placeholder): CreateSubscription (https sukses,
+  localhost boleh, unauthorized, event type invalid, url scheme invalid,
+  event kosong, error), ListSubscriptions, DeleteSubscription (sukses, bukan
+  pemilik->403, id invalid, error), ListDeliveries (tanpa filter kosong,
+  dengan filter sukses, bukan pemilik->403, subscription id invalid).
+- handler_test.go (placeholder TestPlaceholder) DIHAPUS sesuai izin user.
+Hash verifikasi:
+- go build ./internal/handler/... : PASS
+- go test ./internal/handler/... -cover : PASS, coverage 83.7%
+
+[STEP 3] Integration test auth_flow_test.go dengan sqlmock - SELESAI
+File: tests/integration/auth_flow_test.go (TULIS ULANG dari testcontainers)
+Sebelum: pakai testcontainers-go + PostgreSQL container (gagal di lingkungan
+WSL karena dependency Docker).
+Sesudah: pakai sqlmock-backed *database.DB + repository.UserRepository nyata,
+JWT manager nyata, handler nyata. Tanpa Docker/Postgres eksternal.
+Subtest yang lulus:
+- Register (mock INSERT RETURNING -> 201)
+- Login (mock SELECT by email + UPDATE last_login -> 200, verifikasi token)
+- Refresh (mock SELECT by id -> 200, token baru valid)
+- Logout (200)
+- Login invalid password (401)
+- Register email duplikat (mock return error 'duplicate key' -> 409)
+Hasil:
+- go test ./tests/integration/... -v : PASS (auth flow lulus, 4 placeholder lain skip)
+
+[STEP 4] Rate limiter test dengan mock Redis (miniredis) - SELESAI
+File: internal/middleware/rate_limit_test.go (GANTI skip placeholder)
+Dependency baru: github.com/alicebob/miniredis/v2 (in-memory Redis utk test).
+Subtest yang lulus:
+- getLimitKey: api key header prioritas tertinggi, user context, api key
+  override user, ip fallback, x-forwarded-for fallback.
+- checkLimit: dalam limit allowed (remaining), burst multiple, over limit
+  blocked + retryAfter >= 1.
+- Apply: dalam limit pass + header X-RateLimit-*, over limit -> 429 +
+  Retry-After, redis down -> request tetap lanjut (fail-open).
+- New: konstruktor mengatur requestsPerSec & windowSize.
+Hasil:
+- go test ./internal/middleware/... -run RateLimit -v : PASS
+- coverage middleware keseluruhan: 99.0%
+
+[FASE 3 - VERIFIKASI AKHIR]
+- go build ./... : PASS
+- go vet ./... : PASS
+- go test ./... : PASS (seluruh 12 paket backend)
+- Coverage: handler 83.7%, middleware 99.0%
+- ✅ Handler tests, integration tests (sqlmock), rate limiter (miniredis) selesai.
+- TECHNICAL_DEBT item 3, 4, 5 ditandai [FIXED] (lihat TECHNICAL_DEBT.txt).

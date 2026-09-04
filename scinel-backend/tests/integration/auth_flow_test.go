@@ -1,16 +1,18 @@
 package integration
 
 import (
-	"context"
-	"database/sql"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/LittleMardiah/scinel/internal/config"
 	"github.com/LittleMardiah/scinel/internal/database"
@@ -19,57 +21,21 @@ import (
 	"github.com/LittleMardiah/scinel/internal/util"
 )
 
+// TestAuthFlow_Integration verifies the full auth flow (Register -> Login -> Refresh)
+// using a sqlmock-backed database so it runs without external dependencies (Docker/Postgres).
 func TestAuthFlow_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
-
-	// Start PostgreSQL container
-	postgresReq := testcontainers.ContainerRequest{
-		Image:        "postgres:15-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "test_user",
-			"POSTGRES_PASSWORD": "test_password",
-			"POSTGRES_DB":       "test_db",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithStartupTimeout(30 * time.Second),
-	}
-	postgres, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: postgresReq,
-		Started:          true,
-	})
+	// --- Setup sqlmock-backed database ---
+	sqlDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer postgres.Terminate(ctx)
+	defer sqlDB.Close()
 
-	postgresHost, _ := postgres.Host(ctx)
-	postgresPort, _ := postgres.MappedPort(ctx, "5432")
-	dsn := "postgres://test_user:test_password@" + postgresHost + ":" + postgresPort.Port() + "/test_db?sslmode=disable"
+	db := &database.DB{DB: sqlDB}
+	userRepo := repository.NewUserRepository(db)
 
-	// Run migration
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	defer db.Close()
-
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			email VARCHAR(255) UNIQUE NOT NULL,
-			password_hash VARCHAR(255) NOT NULL,
-			full_name VARCHAR(255),
-			role VARCHAR(50) NOT NULL DEFAULT 'viewer',
-			status VARCHAR(50) NOT NULL DEFAULT 'active',
-			last_login_at TIMESTAMP WITH TIME ZONE,
-			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
-	require.NoError(t, err)
-
-	// Setup dependencies
 	cfg := &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey:     "test-secret-key",
@@ -79,47 +45,179 @@ func TestAuthFlow_Integration(t *testing.T) {
 	}
 	jwtManager := util.NewJWTManager(cfg.JWT.SecretKey, cfg.JWT.AccessExpiry, cfg.JWT.RefreshExpiry)
 
-	connCfg := database.ConnectionConfig{URL: dsn}
-	dbConn, err := database.NewConnection(connCfg)
-	require.NoError(t, err)
-	defer dbConn.Close()
-
-	userRepo := repository.NewUserRepository(dbConn)
 	authHandler := handler.NewAuthHandler(userRepo, jwtManager, cfg)
-	_ = authHandler // avoid unused warning
+	require.NotNil(t, authHandler)
 
-	// Test flow: Register, Login, Refresh, Logout
-	t.Run("Register_Login_Refresh_Logout", func(t *testing.T) {
-		hashed, _ := util.HashPassword("SecurePass123!", 0)
-		user, err := userRepo.CreateUser(ctx, "test@example.com", hashed, "Test User", "viewer")
+	userID := uuid.New()
+
+	t.Run("Register", func(t *testing.T) {
+		// Mock the CreateUser query
+		now := time.Now().UTC()
+		rows := sqlmock.NewRows([]string{
+			"id", "email", "password_hash", "full_name", "role", "status", "last_login_at", "created_at", "updated_at",
+		}).AddRow(userID, "test@example.com", "hashed", "Test User", "viewer", "active", nil, now, now)
+
+		mock.ExpectQuery(`INSERT INTO users`).
+			WithArgs("test@example.com", sqlmock.AnyArg(), "Test User", "viewer").
+			WillReturnRows(rows)
+
+		// Build request body
+		body := `{"email":"test@example.com","password":"SecurePass123!","full_name":"Test User"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
+		rr := httptest.NewRecorder()
+
+		authHandler.Register(rr, req)
+
+		assert.Equal(t, http.StatusCreated, rr.Code)
+
+		var resp struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
 		require.NoError(t, err)
-		assert.NotEmpty(t, user.ID)
-
-		// Verify password
-		err = util.VerifyPassword("SecurePass123!", user.PasswordHash)
-		assert.NoError(t, err)
-
-		// Generate tokens
-		accessToken, err := jwtManager.GenerateAccessToken(user.ID, user.Email, user.Role)
-		require.NoError(t, err)
-		assert.NotEmpty(t, accessToken)
-
-		refreshToken, err := jwtManager.GenerateRefreshToken(user.ID)
-		require.NoError(t, err)
-		assert.NotEmpty(t, refreshToken)
-
-		// Verify tokens
-		claims, err := jwtManager.VerifyAccessToken(accessToken)
-		require.NoError(t, err)
-		assert.Equal(t, user.ID, claims.UserID)
-
-		_, err = jwtManager.VerifyRefreshToken(refreshToken)
-		require.NoError(t, err)
-
-		t.Log("Auth flow passed")
+		assert.Equal(t, "User registered successfully", resp.Message)
 	})
-}
 
-func TestMain(m *testing.M) {
-	m.Run()
+	t.Run("Login", func(t *testing.T) {
+		hashed, err := util.HashPassword("SecurePass123!", 4)
+		require.NoError(t, err)
+
+		now := time.Now().UTC()
+		rows := sqlmock.NewRows([]string{
+			"id", "email", "password_hash", "full_name", "role", "status", "last_login_at", "created_at", "updated_at",
+		}).AddRow(userID, "test@example.com", hashed, "Test User", "viewer", "active", nil, now, now)
+
+		mock.ExpectQuery(`SELECT id, email, password_hash, full_name, role, status, last_login_at, created_at, updated_at\s+FROM users WHERE email = \$1`).
+			WithArgs("test@example.com").
+			WillReturnRows(rows)
+
+		mock.ExpectExec(`UPDATE users SET last_login_at`).
+			WithArgs(userID).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		body := `{"email":"test@example.com","password":"SecurePass123!"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(body))
+		rr := httptest.NewRecorder()
+
+		authHandler.Login(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Data    struct {
+				AccessToken  string `json:"access_token"`
+				RefreshToken string `json:"refresh_token"`
+				TokenType    string `json:"token_type"`
+			} `json:"data"`
+		}
+		err = json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "Login successful", resp.Message)
+		assert.NotEmpty(t, resp.Data.AccessToken)
+		assert.NotEmpty(t, resp.Data.RefreshToken)
+		assert.Equal(t, "Bearer", resp.Data.TokenType)
+
+		// Verify the generated access token is valid
+		claims, err := jwtManager.VerifyAccessToken(resp.Data.AccessToken)
+		require.NoError(t, err)
+		assert.Equal(t, userID, claims.UserID)
+		assert.Equal(t, "test@example.com", claims.Email)
+		assert.Equal(t, "viewer", claims.Role)
+	})
+
+	t.Run("Refresh", func(t *testing.T) {
+		// Use a real refresh token for the known user
+		refreshToken, err := jwtManager.GenerateRefreshToken(userID)
+		require.NoError(t, err)
+
+		now := time.Now().UTC()
+		rows := sqlmock.NewRows([]string{
+			"id", "email", "password_hash", "full_name", "role", "status", "last_login_at", "created_at", "updated_at",
+		}).AddRow(userID, "test@example.com", "hashed", "Test User", "viewer", "active", nil, now, now)
+
+		mock.ExpectQuery(`SELECT id, email, password_hash, full_name, role, status, last_login_at, created_at, updated_at\s+FROM users WHERE id = \$1`).
+			WithArgs(userID).
+			WillReturnRows(rows)
+
+		body, _ := json.Marshal(map[string]string{"refresh_token": refreshToken})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBuffer(body))
+		rr := httptest.NewRecorder()
+
+		authHandler.Refresh(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Data    struct {
+				AccessToken string `json:"access_token"`
+				TokenType   string `json:"token_type"`
+			} `json:"data"`
+		}
+		err = json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "Token refreshed successfully", resp.Message)
+		assert.NotEmpty(t, resp.Data.AccessToken)
+
+		claims, err := jwtManager.VerifyAccessToken(resp.Data.AccessToken)
+		require.NoError(t, err)
+		assert.Equal(t, userID, claims.UserID)
+	})
+
+	t.Run("Logout", func(t *testing.T) {
+		refreshToken, err := jwtManager.GenerateRefreshToken(userID)
+		require.NoError(t, err)
+
+		body, _ := json.Marshal(map[string]string{"refresh_token": refreshToken})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", bytes.NewBuffer(body))
+		rr := httptest.NewRecorder()
+
+		authHandler.Logout(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("Login_invalid_password", func(t *testing.T) {
+		hashed, err := util.HashPassword("SecurePass123!", 4)
+		require.NoError(t, err)
+
+		now := time.Now().UTC()
+		rows := sqlmock.NewRows([]string{
+			"id", "email", "password_hash", "full_name", "role", "status", "last_login_at", "created_at", "updated_at",
+		}).AddRow(userID, "test@example.com", hashed, "Test User", "viewer", "active", nil, now, now)
+
+		mock.ExpectQuery(`SELECT id, email, password_hash, full_name, role, status, last_login_at, created_at, updated_at\s+FROM users WHERE email = \$1`).
+			WithArgs("test@example.com").
+			WillReturnRows(rows)
+
+		body := `{"email":"test@example.com","password":"WrongPass999!"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(body))
+		rr := httptest.NewRecorder()
+
+		authHandler.Login(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("Register_duplicate_email", func(t *testing.T) {
+		mock.ExpectQuery(`INSERT INTO users`).
+			WithArgs("dup@example.com", sqlmock.AnyArg(), "Dup User", "viewer").
+			WillReturnError(errors.New("duplicate key value violates unique constraint"))
+
+		body := `{"email":"dup@example.com","password":"SecurePass123!","full_name":"Dup User"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
+		rr := httptest.NewRecorder()
+
+		authHandler.Register(rr, req)
+
+		assert.Equal(t, http.StatusConflict, rr.Code)
+	})
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sqlmock expectations: %v", err)
+	}
 }

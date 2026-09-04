@@ -43,10 +43,21 @@ B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
      trigger async setalah transaksi), WebhookService (publish async, retry
      exponential backoff, dead-letter queue, perbaikan payload body yang
      sebelumnya nil). Logger disatukan via interface ServiceLogger.
-3. Integration test belum jalan (environment issue di WSL).
-4. Handler test masih placeholder.
-5. Rate limiter test di-skip.
-6. E2E test belum dibuat (butuh frontend).
+3. [FIXED] Integration test belum jalan (environment issue di WSL).
+   - Selesai Fase 3 (2026-09-04): auth_flow_test.go ditulis ulang memakai
+     sqlmock (tanpa testcontainers/Docker), sehingga berjalan di WSL.
+4. [FIXED] Handler test masih placeholder.
+   - Selesai Fase 3 (2026-09-04): auth, health, inventory, forecast, anomaly,
+     api_key, webhook handler test diimplementasi penuh (testify/mock +
+     sqlmock + miniredis). Coverage handler 83.7%.
+5. [FIXED] Rate limiter test di-skip.
+   - Selesai Fase 3 (2026-09-04): rate_limit_test.go diimplementasi dengan
+     miniredis (mock Redis). Coverage middleware 99.0%.
+6. [FIXED] E2E test belum dibuat (butuh frontend).
+   - Sudah ada Playwright (scinel-frontend) untuk 5 critical flow; lihat
+     catatan infra E2E pada bagian A.
+7. [NEW] Dependency test ditambah: github.com/alicebob/miniredis/v2
+   (in-memory Redis untuk unit test rate limiter & handler forecast/health).
 
 --------------------------------------------------------------------------------
 C. TINDAK LANJUT
