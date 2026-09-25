@@ -12,18 +12,61 @@ import (
     "github.com/LittleMardiah/scinel/internal/middleware"
     "github.com/LittleMardiah/scinel/internal/model"
     "github.com/LittleMardiah/scinel/internal/repository"
+    "github.com/LittleMardiah/scinel/internal/service"
     "github.com/LittleMardiah/scinel/internal/util"
 )
 
-// InventoryHandler handles inventory-related endpoints
-type InventoryHandler struct {
-    invRepo repository.InventoryRepository
-    txnRepo repository.TransactionRepository
-    db      *database.DB
+// anomalyDetectionTimeout bounds the background detection run so a slow query
+// cannot keep the goroutine alive forever.
+const anomalyDetectionTimeout = 30 * time.Second
+
+// AnomalyDetector triggers anomaly detection for a warehouse/SKU pair.
+// Implemented by *service.AnomalyService.
+type AnomalyDetector interface {
+    DetectAnomalies(ctx context.Context, warehouseID, skuID uuid.UUID) error
 }
 
-func NewInventoryHandler(invRepo repository.InventoryRepository, txnRepo repository.TransactionRepository, db *database.DB) *InventoryHandler {
-    return &InventoryHandler{invRepo: invRepo, txnRepo: txnRepo, db: db}
+// InventoryHandler handles inventory-related endpoints
+type InventoryHandler struct {
+    invRepo    repository.InventoryRepository
+    txnRepo    repository.TransactionRepository
+    db         *database.DB
+    anomalySvc AnomalyDetector
+    logger     service.ServiceLogger
+}
+
+func NewInventoryHandler(invRepo repository.InventoryRepository, txnRepo repository.TransactionRepository, db *database.DB, anomalySvc AnomalyDetector, logger service.ServiceLogger) *InventoryHandler {
+    return &InventoryHandler{invRepo: invRepo, txnRepo: txnRepo, db: db, anomalySvc: anomalySvc, logger: logger}
+}
+
+// detectAnomaliesAsync runs anomaly detection in a background goroutine so the
+// HTTP response is never blocked. It uses context.Background instead of
+// r.Context() because the request context is canceled once the handler returns.
+func (h *InventoryHandler) detectAnomaliesAsync(warehouseID, skuID uuid.UUID) {
+    defer func() {
+        if rec := recover(); rec != nil {
+            h.logAsync("Panic recovered in async anomaly detection", warehouseID, skuID, "panic", rec)
+        }
+    }()
+
+    if h.anomalySvc == nil {
+        return
+    }
+
+    ctx, cancel := context.WithTimeout(context.Background(), anomalyDetectionTimeout)
+    defer cancel()
+
+    if err := h.anomalySvc.DetectAnomalies(ctx, warehouseID, skuID); err != nil {
+        h.logAsync("Async anomaly detection failed", warehouseID, skuID, "error", err.Error())
+    }
+}
+
+// logAsync reports background errors without touching the response writer.
+func (h *InventoryHandler) logAsync(msg string, warehouseID, skuID uuid.UUID, fields ...interface{}) {
+    if h.logger == nil {
+        return
+    }
+    h.logger.Error(msg, append([]interface{}{"warehouse_id", warehouseID, "sku_id", skuID}, fields...)...)
 }
 
 // ==================== REQUEST/RESPONSE TYPES ====================
@@ -183,6 +226,8 @@ func (h *InventoryHandler) CreateTransaction(w http.ResponseWriter, r *http.Requ
     go func() {
         _ = h.invRepo.InvalidateCache(context.Background(), warehouseUUID, skuUUID)
     }()
+
+    go h.detectAnomaliesAsync(warehouseUUID, skuUUID)
 
     resp := transactionResponse{
         ID:               savedTxn.ID.String(),

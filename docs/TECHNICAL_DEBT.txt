@@ -3,8 +3,8 @@ TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
 Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25
 Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25
-Total entri register: 20 (8 entri lama + 12 TD-N baru)
-TD baru tercatat: 12
+Total entri register: 23 (8 entri lama + 15 TD-N baru)
+TD baru tercatat: 15
 Item lama diverifikasi STALE/PARTIAL: 8
 ================================================================================
 
@@ -53,6 +53,22 @@ B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
    [STALE 2026-09-25: kode != docs, cek audit log] Recheck: main.go:78-86 hanya
    meng-wire ForecastService; NewAnomalyService/NewWebhookPublisher tidak ada,
    dan GenerateForecasts tidak memanggil GenerateForecastBatch.
+   [SELESAI 2026-09-25 — TD-B.2 / W2a + W2b + W2c] Ketiga service kini
+   ter-wire di cmd/api/main.go:79-80 (NewWebhookPublisher(webhookRepo,
+   appLogger) + NewAnomalyService(anomalyRepo, invRepo, txnRepo, appLogger,
+   webhookPublisher)) dan inject ke handler di main.go:85. Trigger async
+   ditambahkan di internal/handler/inventory_handler.go:230
+   (`go h.detectAnomaliesAsync(warehouseUUID, skuUUID)`) ->
+   :59 DetectAnomalies -> :130 anomaly_service.go PublishAsync("anomaly.detected").
+   inventory_handler_test.go diupdate align signature constructor
+   (NewInventoryHandler + AnomalyDetector + ServiceLogger) plus 3 subtest baru
+   TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection.
+   Bukti 2026-09-25: go build ./... PASS, go vet ./... PASS,
+   go test ./... PASS (semua paket), go test -race ./internal/handler PASS.
+   Catatan: pemanggilan service memakai context.Background + timeout 30s, bukan
+   r.Context() (request context dibatalkan setelah handler return).
+   Sisa: GenerateForecasts masih tidak memanggil GenerateForecastBatch, dan
+   ProcessDeliveries belum punya pemanggil (lihat TD-N13).
 3. [FIXED] Integration test belum jalan (environment issue di WSL).
    - Selesai Fase 3 (2026-09-04): auth_flow_test.go ditulis ulang memakai
      sqlmock (tanpa testcontainers/Docker), sehingga berjalan di WSL.
@@ -306,3 +322,50 @@ Referensi cepat:
              daftar mencakup backend transaction/anomaly/forecast/webhook
              backups dan frontend dashboard/inventory/component/test/config
              backups.
+
+[TD-N13] WebhookPublisher.ProcessDeliveries tidak pernah dipanggil
+  Severity : HIGH
+  Status   : OPEN (ditemukan saat wiring W2b/W2c 2026-09-25)
+  Deskripsi: PublishAsync hanya mengantre delivery ke tabel webhooks
+             (status pending). Pengiriman HTTP, retry exponential backoff, dan
+             dead-letter queue berjalan di ProcessDeliveries, tetapi tidak ada
+             satu pun pemanggil di seluruh repo (bukan worker, cron, atau
+             goroutine). Akibatnya delivery menumpuk sebagai pending dan
+             webhook "terkirim" secara logika tetapi tidak pernah sampai ke
+             subscriber.
+  Bukti    : `grep -rn "ProcessDeliveries" --include=*.go .` -> hanya
+             scinel-backend/internal/service/webhook_service.go:108 (komentar)
+             dan :110 (definisi method); tidak ada call site.
+             Antrian dibuat di webhook_service.go:92 (CreateDelivery) dan
+             dikirim di :146-190 (attemptDelivery).
+
+[TD-N14] CreateTransaction tidak atomik (tidak ada transaksi DB)
+  Severity : MEDIUM
+  Status   : OPEN (ditemukan saat wiring W2b/W2c 2026-09-25)
+  Deskripsi: Handler mengubah stok lalu menulis transaksi sebagai dua operasi
+             terpisah tanpa BEGIN/COMMIT. Bila pencatatan transaksi gagal,
+             quantity sudah berubah tanpa riwayat, dan dua request paralel bisa
+             saling menimpa delta. LockForUpdate sudah tersedia di repository
+             tetapi tidak pernah dipanggil.
+  Bukti    : scinel-backend/internal/handler/inventory_handler.go:156
+             (UpdateQuantity) dan :177 (txnRepo.Create) tanpa rentang transaksi;
+             `grep -rn "Begin|WithTx|Commit" internal/handler/*.go` -> kosong;
+             LockForUpdate hanya dideklarasikan di
+             internal/repository/inventory_repository.go:32 dan
+             inventory_repository_impl.go:243.
+
+[TD-N15] Deteksi anomali hanya berbasis transaksi "out" dan butuh 5 titik harian
+  Severity : MEDIUM
+  Status   : OPEN (menunggu review DeepSeek; belum di-fix di luar scope W2b/W2c)
+  Deskripsi: Trigger kini berjalan untuk semua transaksi, tetapi histori yang
+             dipakai deteksi hanya agregasi kuantitas tipe "out" selama 90
+             hari, sedangkan nilai yang dibandingkan adalah level stok saat
+             ini. Untuk transaksi "in" (restock) perbandingan ini secara
+             semantik kurang tepat, dan pada SKU baru (< 5 hari outflow)
+             deteksi selalu dilewati diam-diam (hanya log Warn).
+  Bukti    : scinel-backend/internal/service/anomaly_service.go:20-25
+             (anomalyHistoryDays=90, anomalyMinDailyPoints=5);
+             anomaly_service.go:140 (txnType := model.TransactionOut);
+             anomaly_service.go:76-80 (early return bila data < 5 titik);
+             anomaly_service.go:83-84 (Z-score/IQR atas daily "out" vs
+             inv.Quantity).

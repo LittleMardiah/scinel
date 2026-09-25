@@ -18,7 +18,27 @@ import (
 	"github.com/LittleMardiah/scinel/internal/database"
 	"github.com/LittleMardiah/scinel/internal/middleware"
 	"github.com/LittleMardiah/scinel/internal/model"
+	"github.com/LittleMardiah/scinel/internal/service"
 )
+
+// stubAnomalyDetector records DetectAnomalies calls so the async trigger can be
+// asserted without touching the real service.
+type stubAnomalyDetector struct {
+	calls chan [2]uuid.UUID
+	err   error
+}
+
+func newStubAnomalyDetector() *stubAnomalyDetector {
+	return &stubAnomalyDetector{calls: make(chan [2]uuid.UUID, 4)}
+}
+
+func (s *stubAnomalyDetector) DetectAnomalies(ctx context.Context, warehouseID, skuID uuid.UUID) error {
+	select {
+	case s.calls <- [2]uuid.UUID{warehouseID, skuID}:
+	default:
+	}
+	return s.err
+}
 
 func newTestInventoryHandler(t *testing.T) (*InventoryHandler, *MockInventoryRepository, *MockTransactionRepository, *database.DB, sqlmock.Sqlmock) {
 	t.Helper()
@@ -30,7 +50,7 @@ func newTestInventoryHandler(t *testing.T) (*InventoryHandler, *MockInventoryRep
 	t.Cleanup(func() { sqlDB.Close() })
 	db := &database.DB{DB: sqlDB}
 
-	return NewInventoryHandler(invRepo, txnRepo, db), invRepo, txnRepo, db, mock
+	return NewInventoryHandler(invRepo, txnRepo, db, newStubAnomalyDetector(), &forecastTestLogger{}), invRepo, txnRepo, db, mock
 }
 
 func requestWithUser(method, target, body string, user *middleware.UserInfo) *http.Request {
@@ -223,6 +243,105 @@ func TestInventoryHandler_CreateTransaction(t *testing.T) {
 	})
 }
 
+func TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection(t *testing.T) {
+	whID := uuid.New()
+	skuID := uuid.New()
+	user := &middleware.UserInfo{UserID: uuid.New().String(), Email: "u@example.com", Role: "viewer"}
+
+	newHandler := func(t *testing.T, detector *stubAnomalyDetector) (*InventoryHandler, *MockInventoryRepository, *MockTransactionRepository) {
+		t.Helper()
+		invRepo := new(MockInventoryRepository)
+		txnRepo := new(MockTransactionRepository)
+		sqlDB, _, err := sqlmock.New()
+		require.NoError(t, err)
+		t.Cleanup(func() { sqlDB.Close() })
+		return NewInventoryHandler(invRepo, txnRepo, &database.DB{DB: sqlDB}, detector, &forecastTestLogger{}), invRepo, txnRepo
+	}
+
+	expectSuccess := func(t *testing.T, invRepo *MockInventoryRepository, txnRepo *MockTransactionRepository) {
+		t.Helper()
+		currentInv := &model.Inventory{
+			ID:          uuid.New(),
+			WarehouseID: whID,
+			SKUID:       skuID,
+			SKUCode:     "SKU-001",
+			Quantity:    50,
+		}
+		updatedInv := *currentInv
+		updatedInv.Quantity = 40
+		savedTxn := &model.Transaction{
+			ID:               uuid.New(),
+			WarehouseID:      whID,
+			SKUID:            skuID,
+			SKUCode:          "SKU-001",
+			Type:             model.TransactionOut,
+			Quantity:         10,
+			PreviousQuantity: 50,
+			NewQuantity:      40,
+			Reason:           "sale",
+			CreatedAt:        time.Now().UTC(),
+		}
+		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return(currentInv, nil)
+		invRepo.On("UpdateQuantity", mock.Anything, whID, skuID, int32(-10)).Return(&updatedInv, nil)
+		txnRepo.On("Create", mock.Anything, mock.Anything).Return(savedTxn, nil)
+		invRepo.On("InvalidateCache", mock.Anything, whID, skuID).Return(nil)
+	}
+
+	body := `{"warehouse_id":"` + whID.String() + `","sku_id":"` + skuID.String() + `","type":"out","quantity":10,"reason":"sale"}`
+
+	t.Run("detection triggered with warehouse and sku of the transaction", func(t *testing.T) {
+		detector := newStubAnomalyDetector()
+		h, invRepo, txnRepo := newHandler(t, detector)
+		expectSuccess(t, invRepo, txnRepo)
+
+		rr := httptest.NewRecorder()
+		h.CreateTransaction(rr, requestWithUser(http.MethodPost, "/api/v1/transactions", body, user))
+		require.Equal(t, http.StatusCreated, rr.Code)
+
+		select {
+		case got := <-detector.calls:
+			assert.Equal(t, whID, got[0])
+			assert.Equal(t, skuID, got[1])
+		case <-time.After(2 * time.Second):
+			t.Fatal("anomaly detection was not triggered after successful transaction")
+		}
+	})
+
+	t.Run("detection error does not change the response", func(t *testing.T) {
+		detector := newStubAnomalyDetector()
+		detector.err = errors.New("detection failed")
+		h, invRepo, txnRepo := newHandler(t, detector)
+		expectSuccess(t, invRepo, txnRepo)
+
+		rr := httptest.NewRecorder()
+		h.CreateTransaction(rr, requestWithUser(http.MethodPost, "/api/v1/transactions", body, user))
+		require.Equal(t, http.StatusCreated, rr.Code)
+		assert.Equal(t, "Transaction created", decodeResponse(t, rr).Message)
+
+		select {
+		case <-detector.calls:
+		case <-time.After(2 * time.Second):
+			t.Fatal("anomaly detection was not triggered after successful transaction")
+		}
+	})
+
+	t.Run("detection not triggered when transaction is rejected", func(t *testing.T) {
+		detector := newStubAnomalyDetector()
+		h, invRepo, _ := newHandler(t, detector)
+		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return((*model.Inventory)(nil), nil)
+
+		rr := httptest.NewRecorder()
+		h.CreateTransaction(rr, requestWithUser(http.MethodPost, "/api/v1/transactions", body, user))
+		require.Equal(t, http.StatusNotFound, rr.Code)
+
+		select {
+		case got := <-detector.calls:
+			t.Fatalf("unexpected anomaly detection call: %v", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+	})
+}
+
 func TestInventoryHandler_QueryTransactions(t *testing.T) {
 	whID := uuid.New()
 	skuID := uuid.New()
@@ -407,9 +526,13 @@ func TestInventoryHandler_New(t *testing.T) {
 	sqlDB, _, _ := sqlmock.New()
 	defer sqlDB.Close()
 	db := &database.DB{DB: sqlDB}
-	h := NewInventoryHandler(invRepo, txnRepo, db)
+	detector := newStubAnomalyDetector()
+	logger := &forecastTestLogger{}
+	h := NewInventoryHandler(invRepo, txnRepo, db, detector, logger)
 	assert.NotNil(t, h)
 	assert.Equal(t, invRepo, h.invRepo)
 	assert.Equal(t, txnRepo, h.txnRepo)
 	assert.Equal(t, db, h.db)
+	assert.Equal(t, AnomalyDetector(detector), h.anomalySvc)
+	assert.Equal(t, service.ServiceLogger(logger), h.logger)
 }

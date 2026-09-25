@@ -1739,3 +1739,71 @@ ACTIONS:
 
 PENDING:
   - Push tag v1.0.0 ke origin  -> MENUNGGU IZIN USER.
+
+--------------------------------------------------------------------------------
+2026-09-25 20:40 — W2a + W2b + W2c: WIRE FORECAST, ANOMALY, WEBHOOK
+--------------------------------------------------------------------------------
+TASK:
+  1. W2a (committed 4ef4548): wire ForecastService -> ForecastHandler.
+  2. W2b: wire AnomalyService & WebhookPublisher di cmd/api/main.go.
+  3. W2c: trigger async DetectAnomalies setelah POST /transactions sukses.
+
+HASIL — 3 SERVICE SUDAH WIRE + TRIGGER DARI TRANSACTION FLOW:
+  - main.go:79  webhookPublisher := service.NewWebhookPublisher(webhookRepo, appLogger)
+  - main.go:80  anomalySvc := service.NewAnomalyService(anomalyRepo, invRepo,
+                txnRepo, appLogger, webhookPublisher)
+  - main.go:85  inventoryHandler := handler.NewInventoryHandler(invRepo, txnRepo,
+                db, anomalySvc, appLogger)
+  - inventory_handler.go:230  go h.detectAnomaliesAsync(warehouseUUID, skuUUID)
+  - inventory_handler.go:59   h.anomalySvc.DetectAnomalies(ctx, warehouseID, skuID)
+  - anomaly_service.go:130    as.publisher.PublishAsync(ctx, "anomaly.detected", saved)
+  Alur: POST /api/v1/transactions -> stok update + txn create sukses -> goroutine
+  deteksi anomali (Z-score + IQR) -> simpan record -> webhook "anomaly.detected".
+
+CATATAN IMPLEMENTASI:
+  - Handler memakai interface AnomalyDetector (inventory_handler.go:23-25) supaya
+    test bisa memakai stub; logger memakai service.ServiceLogger yang sudah ada.
+  - Goroutine memakai context.Background() + timeout 30s, BUKAN r.Context():
+    request context dibatalkan saat handler return sehingga semua query DB di
+    dalam deteksi akan gagal. Pola ini sudah dipakai handler untuk invalidate
+    cache (inventory_handler.go:230 area, goroutine InvalidateCache).
+  - recover() dipasang di dalam goroutine supaya panic tidak menjatuhkan server;
+    error hanya di-log (tidak memengaruhi response 201).
+  - AnomalyHandler & WebhookHandler TIDAK diubah: keduanya hanya memakai repo
+    (anomaly_handler.go:17-24, webhook_handler.go:20-27), jadi menyuntik service
+    akan menghasilkan field yang tidak terpakai.
+  - anomaly_service.go tidak perlu diubah: publisher sudah ada di struct
+    (anomaly_service.go:33) dan PublishAsync sudah dipanggil di :130.
+
+TEST:
+  - inventory_handler_test.go: helper + TestInventoryHandler_New diupdate align
+    constructor baru; ditambah stubAnomalyDetector dan 3 subtest baru pada
+    TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection (trigger
+    dipanggil, error deteksi tidak mengubah response, deteksi tidak jalan saat
+    transaksi ditolak).
+
+VERIFIKASI (V1-V7):
+  - V1 grep NewAnomalyService|NewWebhookPublisher main.go  : 2 match (:79, :80) PASS
+  - V2 grep anomalySvc.DetectAnomalies inventory_handler.go: 2 match (:59, :230) PASS
+  - V3 grep PublishAsync|Publish anomaly_service.go        : 7 match (:14-17,
+    :33, :42, :129, :130) PASS
+  - V4 go build ./...                                       : PASS
+  - V5 go test ./...                                        : PASS (semua paket)
+  - V6 go vet ./...                                         : PASS
+  - V7 git status --short                                   : 3 file tracked
+    berubah (main.go, inventory_handler.go, inventory_handler_test.go) + docs
+  Tambahan: go test -race ./internal/handler                : PASS
+
+TD BARU (dicatat di TECHNICAL_DEBT.txt):
+  - TD-N13 ProcessDeliveries tidak pernah dipanggil (delivery menumpuk pending,
+    retry & dead-letter queue tidak pernah jalan).
+  - TD-N14 CreateTransaction tidak atomik (UpdateQuantity + Create tanpa
+    transaksi DB; LockForUpdate tidak dipakai).
+  - TD-N15 Deteksi anomali hanya berbasis transaksi "out" dan butuh 5 titik
+    harian (restock "in" kurang representatif).
+  - TD-B.2 di-update status: W2a + W2b + W2c SELESAI (2026-09-25).
+
+PENDING:
+  - Commit oleh user via PowerShell (R10).
+  - GenerateForecasts belum memanggil GenerateForecastBatch; ProcessDeliveries
+    belum ada worker (TD-N13).
