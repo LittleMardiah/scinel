@@ -5,6 +5,7 @@ import (
     "fmt"
 
     "github.com/google/uuid"
+    "github.com/lib/pq"
     "github.com/LittleMardiah/scinel/internal/database"
     "github.com/LittleMardiah/scinel/internal/model"
 )
@@ -38,7 +39,7 @@ func (r *apiKeyRepository) GetByUser(ctx context.Context, userID uuid.UUID) ([]m
         var k model.APIKey
         err := rows.Scan(
             &k.ID, &k.UserID, &k.KeyPrefix, &k.KeyHash, &k.Name, &k.Description,
-            &k.Permissions, &k.IsActive, &k.LastUsedAt, &k.ExpiresAt,
+            pq.Array(&k.Permissions), &k.IsActive, &k.LastUsedAt, &k.ExpiresAt,
             &k.CreatedAt, &k.UpdatedAt,
         )
         if err != nil {
@@ -64,11 +65,11 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *model.APIKey) (*mode
     `
     row := r.db.QueryRowContext(ctx, query,
         key.ID, key.UserID, key.KeyPrefix, key.KeyHash, key.Name, key.Description,
-        key.Permissions, key.IsActive, key.ExpiresAt, key.CreatedAt, key.UpdatedAt,
+        pq.Array(key.Permissions), key.IsActive, key.ExpiresAt, key.CreatedAt, key.UpdatedAt,
     )
     err := row.Scan(
         &key.ID, &key.UserID, &key.KeyPrefix, &key.KeyHash, &key.Name, &key.Description,
-        &key.Permissions, &key.IsActive, &key.LastUsedAt, &key.ExpiresAt,
+        pq.Array(&key.Permissions), &key.IsActive, &key.LastUsedAt, &key.ExpiresAt,
         &key.CreatedAt, &key.UpdatedAt,
     )
     if err != nil {
@@ -89,7 +90,7 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, keyID, userID uuid.UUID)
     var k model.APIKey
     err := r.db.QueryRowContext(ctx, query, keyID, userID).Scan(
         &k.ID, &k.UserID, &k.KeyPrefix, &k.KeyHash, &k.Name, &k.Description,
-        &k.Permissions, &k.IsActive, &k.LastUsedAt, &k.ExpiresAt,
+        pq.Array(&k.Permissions), &k.IsActive, &k.LastUsedAt, &k.ExpiresAt,
         &k.CreatedAt, &k.UpdatedAt,
     )
     if err != nil {
@@ -110,7 +111,7 @@ func (r *apiKeyRepository) GetByPrefix(ctx context.Context, prefix string) (*mod
     var k model.APIKey
     err := r.db.QueryRowContext(ctx, query, prefix).Scan(
         &k.ID, &k.UserID, &k.KeyPrefix, &k.KeyHash, &k.Name, &k.Description,
-        &k.Permissions, &k.IsActive, &k.LastUsedAt, &k.ExpiresAt,
+        pq.Array(&k.Permissions), &k.IsActive, &k.LastUsedAt, &k.ExpiresAt,
         &k.CreatedAt, &k.UpdatedAt,
     )
     if err != nil {
@@ -169,7 +170,7 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *model.APIKey) error 
         WHERE id = $6 AND user_id = $7
     `
     result, err := r.db.ExecContext(ctx, query,
-        key.Name, key.Description, key.Permissions,
+        key.Name, key.Description, pq.Array(key.Permissions),
         key.IsActive, key.ExpiresAt,
         key.ID, key.UserID,
     )

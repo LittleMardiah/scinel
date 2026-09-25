@@ -157,26 +157,140 @@ func (r *webhookRepository) DeleteSubscription(ctx context.Context, subscription
 
 // CreateDelivery records a webhook delivery attempt
 func (r *webhookRepository) CreateDelivery(ctx context.Context, delivery *model.WebhookDelivery) (*model.WebhookDelivery, error) {
-    // TODO: implement when needed
-    return nil, fmt.Errorf("CreateDelivery not implemented yet")
+	query := `
+        INSERT INTO webhook_deliveries (id, subscription_id, event_id, payload, status,
+                                        http_status_code, error_message, attempt_count,
+                                        last_attempt_at, scheduled_retry_at,
+                                        created_at, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING id, subscription_id, event_id, payload::text, status,
+                  http_status_code, error_message, attempt_count,
+                  last_attempt_at, scheduled_retry_at,
+                  created_at, updated_at
+    `
+	var d model.WebhookDelivery
+	err := r.db.QueryRowContext(ctx, query,
+		delivery.ID, delivery.SubscriptionID, delivery.EventID, string(delivery.Payload), delivery.Status,
+		delivery.HTTPStatusCode, delivery.ErrorMessage, delivery.AttemptCount,
+		delivery.LastAttemptAt, delivery.ScheduledRetryAt,
+		delivery.CreatedAt, delivery.UpdatedAt,
+	).Scan(
+		&d.ID, &d.SubscriptionID, &d.EventID, &d.Payload, &d.Status,
+		&d.HTTPStatusCode, &d.ErrorMessage, &d.AttemptCount,
+		&d.LastAttemptAt, &d.ScheduledRetryAt,
+		&d.CreatedAt, &d.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create webhook delivery: %w", err)
+	}
+	return &d, nil
 }
 
 // GetPendingDeliveries retrieves pending deliveries for retry
 func (r *webhookRepository) GetPendingDeliveries(ctx context.Context, limit int) ([]model.WebhookDelivery, error) {
-    // TODO: implement when needed
-    return nil, fmt.Errorf("GetPendingDeliveries not implemented yet")
+	query := `
+        SELECT id, subscription_id, event_id, payload::text, status,
+               http_status_code, error_message, attempt_count,
+               last_attempt_at, scheduled_retry_at,
+               created_at, updated_at
+        FROM webhook_deliveries
+        WHERE status = 'pending'
+          AND (scheduled_retry_at IS NULL OR scheduled_retry_at <= NOW())
+        ORDER BY created_at ASC
+        LIMIT $1
+    `
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query pending deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.WebhookDelivery
+	for rows.Next() {
+		var d model.WebhookDelivery
+		if err := rows.Scan(
+			&d.ID, &d.SubscriptionID, &d.EventID, &d.Payload, &d.Status,
+			&d.HTTPStatusCode, &d.ErrorMessage, &d.AttemptCount,
+			&d.LastAttemptAt, &d.ScheduledRetryAt,
+			&d.CreatedAt, &d.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan webhook delivery: %w", err)
+		}
+		items = append(items, d)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+	return items, nil
 }
 
 // UpdateDeliveryStatus updates delivery status
 func (r *webhookRepository) UpdateDeliveryStatus(ctx context.Context, deliveryID uuid.UUID, status model.DeliveryStatus, httpStatus *int, errMsg *string) error {
-    // TODO: implement when needed
-    return fmt.Errorf("UpdateDeliveryStatus not implemented yet")
+	query := `
+        UPDATE webhook_deliveries
+        SET status = $1,
+            http_status_code = $2,
+            error_message = $3,
+            attempt_count = attempt_count + 1,
+            last_attempt_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $4
+    `
+	result, err := r.db.ExecContext(ctx, query, status, httpStatus, errMsg, deliveryID)
+	if err != nil {
+		return fmt.Errorf("failed to update webhook delivery status: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("webhook delivery not found")
+	}
+	return nil
 }
 
 // GetDeliveryHistory retrieves delivery history for a subscription
 func (r *webhookRepository) GetDeliveryHistory(ctx context.Context, subscriptionID uuid.UUID, limit, offset int) ([]model.WebhookDelivery, int64, error) {
-    // TODO: implement when needed
-    return nil, 0, fmt.Errorf("GetDeliveryHistory not implemented yet")
+	query := `
+        SELECT id, subscription_id, event_id, payload::text, status,
+               http_status_code, error_message, attempt_count,
+               last_attempt_at, scheduled_retry_at,
+               created_at, updated_at
+        FROM webhook_deliveries
+        WHERE subscription_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3
+    `
+	rows, err := r.db.QueryContext(ctx, query, subscriptionID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query delivery history: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.WebhookDelivery
+	for rows.Next() {
+		var d model.WebhookDelivery
+		if err := rows.Scan(
+			&d.ID, &d.SubscriptionID, &d.EventID, &d.Payload, &d.Status,
+			&d.HTTPStatusCode, &d.ErrorMessage, &d.AttemptCount,
+			&d.LastAttemptAt, &d.ScheduledRetryAt,
+			&d.CreatedAt, &d.UpdatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan webhook delivery: %w", err)
+		}
+		items = append(items, d)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	var total int64
+	err = r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_deliveries WHERE subscription_id = $1`, subscriptionID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count delivery history: %w", err)
+	}
+	return items, total, nil
 }
 
 // GetSubscriptionByID retrieves a webhook subscription by ID

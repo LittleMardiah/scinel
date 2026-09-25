@@ -1596,3 +1596,146 @@ Hasil:
 - Coverage: handler 83.7%, middleware 99.0%
 - ✅ Handler tests, integration tests (sqlmock), rate limiter (miniredis) selesai.
 - TECHNICAL_DEBT item 3, 4, 5 ditandai [FIXED] (lihat TECHNICAL_DEBT.txt).
+
+
+--------------------------------------------------------------------------------
+[APPENDED FROM scinel-backend/docs/LOGBOOK.txt]
+--------------------------------------------------------------------------------
+
+2026-09-04 08:28:55 — PRIORITAS 1: Wire Middleware
+------------------------------------------------------------------------
+ACTIONS:
+  1. Backed up cmd/api/main.go -> main.go.bak_20260904_082855
+  2. Wired RateLimitMiddleware into main.go:
+     - Created via NewRateLimitMiddleware(redisClient, 1000)
+     - Applied after SecurityHeaders, before AuthMiddleware
+     - Chain: CORS -> SecurityHeaders -> RateLimit -> Auth -> Mux
+  3. Wired RBACMiddleware on admin-only routes (API Keys):
+     - POST   /api/v1/api-keys           (Create)
+     - GET    /api/v1/api-keys           (List)
+     - DELETE /api/v1/api-keys/{id}      (Revoke)
+     - POST   /api/v1/api-keys/{id}/rotate (Rotate)
+     - Used mux.Handle (not HandleFunc) because RBACMiddleware returns http.Handler
+     - Required http.HandlerFunc wrapper for handler methods
+
+VERIFICATION:
+  - go build ./...   : PASS (no errors)
+  - go test ./...    : PASS (all 12 packages OK)
+
+NOTES:
+  - RateLimit key hierarchy: X-API-Key header > JWT user_id > IP fallback
+  - Rate limit: 1000 req/s per key with 1-second sliding window (Redis)
+  - Redis failure is non-blocking (graceful degradation)
+  - RBACMiddleware reads UserInfo from context (set by AuthMiddleware)
+  - Only "admin" role is permitted on API Keys routes
+
+
+--------------------------------------------------------------------------------
+2026-09-04 — DOKUMENTASI MONOREPO & RAPIKAN LOKASI DOCS
+Status: SELESAI
+
+TASK 1 — PERBAIKI LOKASI DOCS
+1. Append scinel-backend/docs/LOGBOOK.txt -> docs/LOGBOOK.txt (konten sesi 2026-09-04 wire middleware).
+2. Append scinel-backend/docs/TECHNICAL_DEBT.txt -> docs/TECHNICAL_DEBT.txt (R-001, D-001..D-004).
+3. Hapus scinel-backend/docs/ :
+   - LOGBOOK.txt (duplikat, sudah di-append)
+   - TECHNICAL_DEBT.txt (duplikat, sudah di-append)
+   - SETUP.md (kosong)
+   - DATABASE.md (kosong)
+   - API.md -> dipindah ke docs/API.md
+   - direktori scinel-backend/docs/ dihapus (kosong)
+
+TASK 2 — DOKUMENTASI
+1. Buat README.md root (fitur, tech stack, quick start, performance metrics, link docs).
+2. Tulis ulang scinel-backend/README.md (hapus template golang-migrate) -> README backend asli.
+3. Tulis ulang scinel-frontend/README.md (hapus boilerplate create-next-app) -> README frontend asli.
+4. Lengkapi docs/API.md -> 27 rute / 23 endpoint unik, lengkap request/response + error codes.
+5. Buat docs/ARCHITECTURE.md (clean architecture, data flow, DB schema 12 tabel, caching, keamanan).
+6. Buat docs/TROUBLESHOOTING.md (12 masalah umum dari pengalaman debugging).
+7. Buat docs/CONTRIBUTING.md (code standards backend+frontend, PR process).
+8. Tulis ulang scinel-backend/CONTRIBUTING.md (hapus artifact PowerShell).
+
+
+--------------------------------------------------------------------------------
+2026-09-05 07:41 — PRIORITAS 3: SECURITY HEADERS (CSP & Referrer-Policy)
+--------------------------------------------------------------------------------
+TASK:
+  1. Tambahkan Content-Security-Policy & Referrer-Policy ke SecurityHeaders middleware.
+
+ACTIONS:
+  - internal/middleware/cors.go (SecurityHeaders) -> tambah 2 header baru:
+      * Content-Security-Policy: default-src 'self'
+      * Referrer-Policy: strict-origin-when-cross-origin
+      (ditempatkan setelah HSTS, sebelum next.ServeHTTP)
+  - internal/middleware/cors_test.go (TestSecurityHeaders) -> tambah 2 assertion baru
+    untuk memverifikasi header CSP & Referrer-Policy.
+
+VERIFICATION:
+  - go build ./...                            : PASS
+  - go test ./...                             : PASS (semua 12 paket)
+  - go test ./internal/middleware -run TestSecurityHeaders -v : PASS
+
+NOTES:
+  - CSP default-src 'self' membatasi sumber konten hanya origin sendiri.
+  - Referrer-Policy strict-origin-when-cross-origin: kirim origin sebagai
+    referrer saat cross-origin, strip saat HTTPS->HTTP.
+
+--------------------------------------------------------------------------------
+2026-09-05 07:41 — PRIORITAS 4: DB INDEXES
+--------------------------------------------------------------------------------
+TASK:
+  1. Cek keempat index yang diminta; buat migration 000013 jika ada yang hilang.
+  2. Jalankan migrate up.
+
+VALIDASI (CEK > VALIDASI):
+  Permintaan:  idx_inventory_warehouse_id, idx_transactions_created_at,
+               idx_anomalies_detected_at, idx_users_email.
+  Hasil scan migration:
+    * idx_users_email                -> ADA (000001_create_users_table.up.sql:13)
+    * idx_transactions_created_at    -> ADA (000005_create_transactions_table.up.sql:17)
+    * idx_anomalies_detected_at      -> ADA (000007_create_anomalies_table.up.sql:23)
+    * idx_inventory_warehouse_id     -> TIDAK ADA persis, TAPI ekivalen fungsional
+                                        ada sebagai "idx_inventory_warehouse"
+                                        (000004_create_inventory_table.up.sql:16,
+                                        kolom warehouse_id yang sama).
+
+KEPUTUSAN:
+  - TIDAK membuat migration 000013_add_indexes.up.sql karena keempat index
+    sudah terpenuhi secara fungsional. Membuat index duplikat hanya menambah
+    storage & write overhead tanpa manfaat query (anti-pattern).
+
+VERIFIKASI:
+  - migrate -path migrations -database postgres://...scinel_db up : "no change"
+    (migration 000001-000012 sudah applied semua)
+  - Query pg_indexes di scinel-postgres (docker):
+      idx_anomalies_detected_at   | anomalies
+      idx_inventory_warehouse     | inventory
+      idx_transactions_created_at | transactions
+      idx_users_email             | users
+    => 4/4 index target terkonfirmasi ada di live DB.
+
+NOTES:
+  - DB live: container scinel-postgres (port 5434), kredensial dari
+    docker-compose.yml, bukan .env.local.
+
+--------------------------------------------------------------------------------
+2026-09-05 07:41 — PRIORITAS 5: PORTFOLIO & RELEASE v1.0.0
+--------------------------------------------------------------------------------
+TASK:
+  1. Buat CHANGELOG.md v1.0.0 di root repo.
+  2. Tag v1.0.0 (lokal; push menunggu izin user).
+  3. Update LOGBOOK & TECHNICAL_DEBT.
+
+ACTIONS:
+  - CHANGELOG.md dibuat di root (format Keep a Changelog):
+      * Added: backend (auth/RBAC, inventory, forecasting, anomaly,
+        webhook, API keys, rate limiter, security headers, 12 tabel,
+        23 endpoint), frontend (Next.js 14, fitur halaman), testing.
+      * Changed: monorepo restructure, dokumentasi lengkap.
+      * Fixed: integration test WSL, BOM .env.local, Playwright port.
+      * Security: no secret committed, bcrypt/SHA-256/HMAC.
+  - git tag -a v1.0.0 -m "Release v1.0.0 — ScIntel Platform"  : dibuat lokal.
+  - Total commit di main: 43.
+
+PENDING:
+  - Push tag v1.0.0 ke origin  -> MENUNGGU IZIN USER.

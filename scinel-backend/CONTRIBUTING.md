@@ -1,54 +1,60 @@
-@"
 # Contributing to ScIntel Backend
 
-First off, thank you for considering contributing to ScIntel! 🎉
+Terima kasih sudah mempertimbangkan untuk berkontribusi pada ScIntel Backend! 🎉
+
+> **Catatan:** Panduan kontribusi lengkap (meliputi seluruh monorepo) tersedia di [`docs/CONTRIBUTING.md`](../docs/CONTRIBUTING.md). Dokumen ini berisi ringkasan khusus backend Go.
 
 ## Code of Conduct
-By participating in this project, you agree to abide by our code of conduct: Be respectful, professional, and constructive.
 
-## Getting Started
-1. Fork the repository
-2. Create a new branch: \`git checkout -b feature/your-feature-name\`
-3. Make your changes
-4. Run tests: \`make test\`
-5. Run linter: \`make lint\`
-6. Commit your changes (see commit conventions below)
-7. Push to your fork and open a Pull Request
+Dengan berpartisipasi, Anda setuju: bersikap respek, profesional, dan konstruktif.
 
-## Development Standards
+## Alur Kerja
+
+1. Fork repository.
+2. Buat branch: `git checkout -b feature/your-feature-name`
+3. Buat perubahan.
+4. Jalankan test: `make test`
+5. Jalankan linter: `make lint`
+6. Commit (lihat konvensi di bawah).
+7. Push ke fork & buka Pull Request.
+
+## Standar Development
 
 ### Go Code Style
-- Run \`gofmt -s -w .\` before committing (included in \`make format\`)
-- Use \`golangci-lint\` to catch common issues
-- Follow Go naming conventions (CamelCase for exported, camelCase for unexported)
+- Jalankan `gofmt -s -w .` sebelum commit (termasuk di `make format`).
+- Gunakan `golangci-lint` untuk menangkap masalah umum.
+- Ikuti konvensi penamaan Go (CamelCase exported, camelCase unexported).
+- Ikuti Clean Architecture: handler → service → repository. Jangan menaruh logika bisnis di handler.
 
 ### Commit Conventions
-We follow [Conventional Commits](https://www.conventionalcommits.org/):
-- \`feat:\` New feature
-- \`fix:\` Bug fix
-- \`docs:\` Documentation updates
-- \`test:\` Testing changes
-- \`chore:\` Maintenance tasks
+Kami mengikuti [Conventional Commits](https://www.conventionalcommits.org/):
+- `feat:` — fitur baru
+- `fix:` — perbaikan bug
+- `docs:` — pembaruan dokumentasi
+- `test:` — perubahan test
+- `chore:` — tugas maintenance
 
-**Example:** \`feat(auth): implement JWT refresh token endpoint\`
+**Contoh:** `feat(auth): implement JWT refresh token endpoint`
 
-### Testing Requirements
-- **Coverage**: All new code must maintain >80% coverage
-- **Unit Tests**: Must pass locally before pushing
-- **Integration Tests**: Must pass in CI pipeline
+### Persyaratan Testing
+- **Coverage**: kode baru harus mempertahankan >80% coverage.
+- **Unit Test**: harus lolos lokal sebelum push.
+- **Integration Test**: gunakan `sqlmock` (bukan testcontainers) agar berjalan di WSL tanpa Docker.
+- **Jangan skip test** tanpa alasan; catat ke `docs/TECHNICAL_DEBT.txt` bila terpaksa.
 
 ## Pull Request Process
-1. Ensure your PR description clearly describes the changes and why they are needed.
-2. Update the README.md or documentation if necessary.
-3. Wait for CI to pass. All checks must be green.
-4. Request a review (or self-review for solo projects).
 
-## Reporting Bugs
-Please use GitHub Issues with the \`bug\` label. Include:
-- Steps to reproduce
-- Expected behavior
-- Actual behavior
-- Environment (OS, Go version, etc.)
+1. Deskripsi PR jelas: apa berubah, mengapa, dan cara verifikasi.
+2. Update dokumentasi bila perlu.
+3. Tunggu CI hijau. Semua check harus lulus.
+4. Minta review (atau self-review untuk proyek solo).
 
-Thanks for contributing! 🚀
-"@ | Out-File -FilePath CONTRIBUTING.md -Encoding utf8
+## Melaporkan Bug
+
+Gunakan GitHub Issues dengan label `bug`. Sertakan:
+- Langkah reproduksi
+- Perilaku yang diharapkan
+- Perilaku aktual
+- Environment (OS, versi Go, dll.)
+
+Terima kasih sudah berkontribusi! 🚀

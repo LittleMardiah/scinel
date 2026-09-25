@@ -1,8 +1,11 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2)
-Status: INFRASTRUKTUR E2E FIXES
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25
+Total entri register: 20 (8 entri lama + 12 TD-N baru)
+TD baru tercatat: 12
+Item lama diverifikasi STALE/PARTIAL: 8
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -11,11 +14,13 @@ A. TEMUAN SCAN & FIX INFRASTRUKTUR E2E (2026-09-03)
 1. [FIXED] Playwright baseURL salah port (3001 -> 3000).
    - File: scinel-frontend/playwright.config.ts
    - baseURL sekarang: http://localhost:3000
+   [STALE 2026-09-25: kode != docs, cek audit log] Recheck: config:11 memakai 3000, tetapi tests/e2e/scinel-e2e.spec.ts:6 masih hardcode BASE_URL 3001.
 
 2. [FIXED] Backend .env.local memakai port non-standar.
    - DATABASE_URL: 5434 -> 5432
    - REDIS_URL:    6381 -> 6379
    - File: scinel-backend/.env.local
+   [STALE 2026-09-25: kode != docs, cek audit log] Recheck terpartial: .env.local:4 memakai PostgreSQL 5434, .env.local:14 memakai Redis 6379; docker-compose.yml:11 memetakan 5434 dan :28 memetakan 6381.
 
 3. [BLOCKED] Backend tidak dapat konek ke PostgreSQL.
    - Error: role "scinel_user" does not exist (28000)
@@ -29,6 +34,7 @@ A. TEMUAN SCAN & FIX INFRASTRUKTUR E2E (2026-09-03)
 5. [MINOR] BOM pada baris pertama .env.local backend
    - .env.local line 1 diawali BOM sehingga saat `source` muncul
      "command not found". Tidak memblokir namun perlu dibersihkan.
+   [STALE 2026-09-25: kode != docs, cek audit log] Recheck mengonfirmasi byte awal EF BB BF; item tetap OPEN/PARTIAL dan dampak non-blocking belum diuji.
 
 --------------------------------------------------------------------------------
 B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
@@ -37,15 +43,22 @@ B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
    - Selesai Fase 1 (2026-09-03): Transaction, Anomaly, Forecast, Webhook, API Key
      diimplementasi penuh (SQL + JOIN + filter). Inventory telah selesai sebelumnya
      (GetAll, GetByWarehouse) meski sisanya (GetBySKU, UpdateQuantity, dll) menyusul.
+   [STALE 2026-09-25: kode != docs, cek audit log] Recheck: inventory_repository_impl.go:137-157 masih TODO untuk GetBySKU, Create, UpdateQuantity, dan LockForUpdate.
 2. [FIXED] Service logic masih sebagian placeholder.
    - Selesai Fase 2 (2026-09-04): ForecastService (batch forecast ETS/ARIMA,
      query, accuracy, trigger manual), AnomalyService (deteksi Z-score/IQR,
      trigger async setalah transaksi), WebhookService (publish async, retry
      exponential backoff, dead-letter queue, perbaikan payload body yang
      sebelumnya nil). Logger disatukan via interface ServiceLogger.
+   [STALE 2026-09-25: kode != docs, cek audit log] Recheck: main.go:78-86 hanya
+   meng-wire ForecastService; NewAnomalyService/NewWebhookPublisher tidak ada,
+   dan GenerateForecasts tidak memanggil GenerateForecastBatch.
 3. [FIXED] Integration test belum jalan (environment issue di WSL).
    - Selesai Fase 3 (2026-09-04): auth_flow_test.go ditulis ulang memakai
      sqlmock (tanpa testcontainers/Docker), sehingga berjalan di WSL.
+   [STALE 2026-09-25: kode != docs, cek audit log] Recheck: auth_flow_test.go
+   aktif, tetapi inventory/forecast/anomaly/webhook_flow_test.go masih memiliki
+   t.Skip unconditional pada baris 13.
 4. [FIXED] Handler test masih placeholder.
    - Selesai Fase 3 (2026-09-04): auth, health, inventory, forecast, anomaly,
      api_key, webhook handler test diimplementasi penuh (testify/mock +
@@ -56,6 +69,10 @@ B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
 6. [FIXED] E2E test belum dibuat (butuh frontend).
    - Sudah ada Playwright (scinel-frontend) untuk 5 critical flow; lihat
      catatan infra E2E pada bagian A.
+   [STALE 2026-09-25: kode != docs, cek audit log] Test file memang ada,
+   tetapi playwright.config.ts:11 (3000) dan scinel-e2e.spec.ts:6 (3001)
+   tidak konsisten; artefak hasil E2E juga sudah berubah dan eksekusi fresh
+   belum dilakukan.
 7. [NEW] Dependency test ditambah: github.com/alicebob/miniredis/v2
    (in-memory Redis untuk unit test rate limiter & handler forecast/health).
 
@@ -65,3 +82,227 @@ C. TINDAK LANJUT
 - Provision PostgreSQL role/database untuk keberhasilan backend & E2E.
 - Bersihkan BOM pada .env.local backend.
 - Jalankan npx playwright test setelah backend & frontend hidup.
+
+--------------------------------------------------------------------------------
+[APPENDED FROM scinel-backend/docs/TECHNICAL_DEBT.txt — SESI 2026-09-04]
+--------------------------------------------------------------------------------
+
+[R-001] 2026-09-04 — Middleware not wired into main.go
+  Severity : HIGH
+  Status   : RESOLVED
+  Detail   : RateLimitMiddleware and RBACMiddleware existed in internal/middleware
+             but were not composed into the HTTP handler chain in main.go.
+  Fix      : Wired RateLimitMiddleware (after CORS, before Auth) and
+             RBACMiddleware on admin-only API Keys routes.
+  Files    : cmd/api/main.go
+
+[D-001] Hardcoded rate limit value (1000 req/s)
+  Severity : LOW
+  Detail   : Rate limit is hardcoded in main.go instead of reading from config.
+  Impact   : Requires code change to adjust rate limits.
+  Suggestion: Add RateLimit config section to internal/config and read from env.
+
+[D-002] No per-route rate limit tiers
+  Severity : LOW
+  Detail   : All routes share the same 1000 req/s limit. Auth endpoints
+             (login/register) may need stricter limits to prevent brute force.
+  Suggestion: Implement per-path or per-group rate limit configurations.
+
+[D-003] RBAC only covers API Keys routes
+  Severity : MEDIUM
+  Detail   : Only API Keys management routes are protected by RBAC.
+             Anomaly status updates and forecast generation may also
+             need role-based restrictions.
+  Suggestion: Audit remaining routes and add RBAC where appropriate.
+
+[D-004] Default RBAC role is "admin"
+  Severity : LOW
+  Detail   : Admin role string "admin" is hardcoded. Different deployments
+             may use different role names.
+  Suggestion: Make RBAC roles configurable via environment or config.
+
+--------------------------------------------------------------------------------
+DOKUMENTASI MONOREPO (2026-09-04)
+--------------------------------------------------------------------------------
+- scinel-backend/docs/ dirapikan: duplikat LOGBOOK/TECHNICAL_DEBT di-append ke
+  root docs/, file kosong (SETUP.md, DATABASE.md) dihapus, API.md dipindah ke root.
+- Dokumentasi lengkap di root: README.md, docs/API.md (23 endpoint),
+  docs/ARCHITECTURE.md, docs/TROUBLESHOOTING.md, docs/CONTRIBUTING.md.
+- scinel-backend/README.md & scinel-frontend/README.md dibersihkan dari template
+  bawaan (golang-migrate / create-next-app) menjadi dokumentasi asli proyek.
+- scinel-backend/CONTRIBUTING.md dibersihkan dari artifact PowerShell (~/Out-File).
+Status: SELESAI.
+
+--------------------------------------------------------------------------------
+RELEASE v1.0.0 (2026-09-05)
+--------------------------------------------------------------------------------
+[R-002] Security headers CSP & Referrer-Policy belum ada
+  Severity : MEDIUM
+  Status   : RESOLVED
+  Detail   : SecurityHeaders hanya mengatur nosniff, frame, XSS, HSTS.
+  Fix      : Tambah Content-Security-Policy: default-src 'self' dan
+             Referrer-Policy: strict-origin-when-cross-origin.
+  Files    : scinel-backend/internal/middleware/cors.go,
+             scinel-backend/internal/middleware/cors_test.go
+
+[D-005] Nama index inventory: idx_inventory_warehouse vs idx_inventory_warehouse_id
+  Severity : LOW
+  Status   : OPEN (tidak ada perubahan)
+  Detail   : Standar penamaan yang diminta adalah idx_<table>_<col>_id.
+             Index fungsional sudah ada (idx_inventory_warehouse).
+  Catatan  : Tidak dibuatkan index duplikat untuk menghindari write overhead;
+             cukup dokumentasi penamaan ini. Bisa direname via migration
+             baru jika standardisasi nama index diinginkan.
+
+[D-006] Tag/CHANGELOG baru pertama kali dibuat
+  Severity : LOW
+  Status   : RESOLVED
+  Detail   : v1.0.0 di-tag lokal + CHANGELOG.md dibuat; push masih tertunda.
+  [STALE 2026-09-25: kode != docs, cek audit log] Local tag v1.0.0 memang
+  ada; git ls-remote --tags origin gagal autentikasi (exit 128), jadi status
+  push/remote tag tetap belum terverifikasi.
+
+--------------------------------------------------------------------------------
+TD BARU (AUDIT 2026-09-25)
+--------------------------------------------------------------------------------
+Sumber klaim: prompt.txt:38-49. Verifikasi berikut membedakan bukti statis,
+current worktree, dan HEAD. Tidak ada implementasi fix dalam audit ini.
+
+Referensi cepat:
+- TD-N1
+- TD-N2
+- TD-N3
+- TD-N4
+- TD-N5
+- TD-N6
+- TD-N7
+- TD-N8
+- TD-N9
+- TD-N10
+- TD-N11
+- TD-N12
+
+[TD-N1] POST /transactions dapat mengembalikan HTTP 500
+  Severity : CRITICAL
+  Status   : OPEN (bukti statis terverifikasi; unit test mocked 500 pass; HTTP live belum diuji)
+  Deskripsi: Inventory repository aktif masih mengembalikan error placeholder;
+             handler memetakan error GetBySKU ke HTTP 500.
+  Bukti    : scinel-backend/internal/repository/inventory_repository_impl.go:137-157;
+             scinel-backend/internal/handler/inventory_handler.go:135-138;
+             scinel-backend/internal/handler/inventory_handler_test.go:172-180;
+             `go test -mod=readonly ./internal/handler -run 'TestInventoryHandler' -count=1` -> PASS.
+
+[TD-N2] Tidak ditemukan writer audit trail di aplikasi
+  Severity : HIGH
+  Status   : OPEN (tabel ada; isi database runtime tidak diverifikasi)
+  Deskripsi: Migration membuat tabel audit_log, tetapi pencarian kode Go tidak
+             menemukan INSERT atau pemanggil audit; klaim runtime nol harus dibaca
+             sebagai tidak ada writer aplikasi.
+  Bukti    : scinel-backend/migrations/000009_create_audit_log_table.up.sql:1-16;
+             scinel-backend/migrations/000009_create_audit_log_table.down.sql:1-5;
+             `git grep -n -i audit -- '*.go' '*.sql'` hanya mengembalikan kedua
+             migration tersebut.
+
+[TD-N3] Logout tidak mencabut token
+  Severity : HIGH
+  Status   : OPEN (unit logout tests pass; token revocation belum ada)
+  Deskripsi: Logout hanya memverifikasi refresh token dan selalu mengembalikan
+             200; token tidak disimpan di blacklist/revocation store.
+  Bukti    : scinel-backend/internal/handler/auth_handler.go:234-260;
+             scinel-backend/internal/util/jwt.go:19-23,104-122;
+             scinel-backend/internal/handler/auth_handler_test.go:321-356;
+             `go test -mod=readonly ./internal/handler -run 'TestAuthHandler_Logout' -count=1` -> PASS.
+
+[TD-N4] Frontend gagal typecheck pada handler Select
+  Severity : HIGH
+  Status   : OPEN (tsc exit 2; next build fresh tidak dijalankan)
+  Deskripsi: Select menerima callback string, tetapi anomalies page memperlakukan
+             callback sebagai React event dan mengakses e.target.value.
+  Bukti    : scinel-frontend/components/common/Select.tsx:6-17;
+             scinel-frontend/app/(protected)/anomalies/page.tsx:190,201;
+             `pnpm exec tsc --noEmit --incremental false --pretty false` ->
+             TS2339 pada 190:54 dan 201:56, TSC_EXIT=2.
+
+[TD-N5] Rate limiter dijalankan sebelum Auth
+  Severity : MEDIUM
+  Status   : OPEN (current worktree; unit key tests pass; route composition belum diuji)
+  Deskripsi: Rate limiter berada di luar AuthMiddleware. Karena user context baru
+             dibuat Auth, bearer request jatuh ke key IP; key X-API-Key tetap
+             berfungsi dan bukan semua user keying mati.
+  Bukti    : scinel-backend/cmd/api/main.go:132-139;
+             scinel-backend/internal/middleware/rate_limit.go:34-49,103-121;
+             scinel-backend/internal/middleware/auth.go:65-81;
+             `go test -mod=readonly ./internal/middleware -run 'RateLimit|AuthMiddleware' -count=1` -> PASS;
+             `git diff -- scinel-backend/cmd/api/main.go` menunjukkan wiring
+             rate limiter hanya ada di worktree.
+
+[TD-N6] Forecast batch dan webhook retry tidak terjadwal
+  Severity : MEDIUM
+  Status   : OPEN
+  Deskripsi: Method batch dan retry/dead-letter ada, tetapi tidak ada scheduler
+             atau call site aktif; endpoint generate hanya sleep lalu 202.
+  Bukti    : scinel-backend/internal/service/forecast_service.go:54-90;
+             scinel-backend/internal/service/webhook_service.go:108-137;
+             scinel-backend/internal/handler/forecast_handler.go:127-145;
+             scinel-backend/cmd/api/main.go:78-86;
+             `git grep` hanya menemukan definisi GenerateForecastBatch dan
+             ProcessDeliveries.
+
+[TD-N7] .gitignore memiliki encoding campuran dan aturan docs/ tidak berlaku
+  Severity : MEDIUM
+  Status   : OPEN (encoding defect terverifikasi; perilaku GitHub tidak diuji langsung)
+  Deskripsi: 333 byte awal ASCII, lalu tail `docs/` tersimpan UTF-16LE tanpa BOM.
+             File tidak wholly UTF-16, tetapi malformed mixed encoding membuat
+             rule docs/ tidak mengabaikan file untracked di bawah docs/.
+  Bukti    : `.gitignore` byte offset 0-332 ASCII; byte 333-345
+             `64 00 6f 00 63 00 73 00 2f 00 0d 00 0a 00`;
+             `git check-ignore -v --no-index docs/API.md` tidak menghasilkan rule;
+             `git status` tetap menampilkan `?? docs/API.md`.
+
+[TD-N8] SECURITY.md, LICENSE.md, dan root LICENSE tidak konsisten
+  Severity : MEDIUM
+  Status   : OPEN
+  Deskripsi: Dua dokumen tracked memuat wrapper PowerShell, bukan dokumen Markdown
+             bersih. Root LICENSE tidak ada; LICENSE yang ada di backend adalah
+             file untracked lisensi golang-migrate.
+  Bukti    : scinel-backend/SECURITY.md:1,46;
+             scinel-backend/LICENSE.md:1,23;
+             scinel-backend/LICENSE:1-28 (untracked);
+             `git ls-tree -r --name-only HEAD` tidak memuat root LICENSE.
+
+[TD-N9] Backend .env.example hilang tetapi README merujuk
+  Severity : LOW
+  Status   : PARTIAL (frontend template tersedia)
+  Deskripsi: Root dan backend README menyuruh menyalin .env.example di backend,
+             tetapi file itu tidak ada. Frontend memiliki .env.example sendiri.
+  Bukti    : README.md:64-65;
+             scinel-backend/README.md:56,75;
+             `test -f scinel-backend/.env.example` -> absent;
+             scinel-frontend/.env.example:1-11.
+
+[TD-N10] GetBySKUCached belum implementasi
+  Severity : LOW
+  Status   : OPEN
+  Deskripsi: Interface dan concrete Redis cache read tetap TODO dan mengembalikan
+             error placeholder.
+  Bukti    : scinel-backend/internal/repository/inventory_repository.go:34-37;
+             scinel-backend/internal/repository/inventory_repository_impl.go:160-164.
+
+[TD-N11] InvalidateCache belum implementasi
+  Severity : LOW
+  Status   : OPEN
+  Deskripsi: Handler memanggil invalidasi setelah transaksi, tetapi concrete
+             implementation tetap mengembalikan error placeholder.
+  Bukti    : scinel-backend/internal/repository/inventory_repository.go:39-40;
+             scinel-backend/internal/repository/inventory_repository_impl.go:166-169;
+             scinel-backend/internal/handler/inventory_handler.go:183-185.
+
+[TD-N12] File backup .bak ter-track
+  Severity : LOW
+  Status   : OPEN
+  Deskripsi: Repository masih memiliki 17 path .bak yang tracked; terdapat backup
+             tambahan yang untracked di luar hitungan ini.
+  Bukti    : `git ls-files -- '*.bak' '*.bak.*' '*.bak*' | wc -l` -> 17;
+             daftar mencakup backend transaction/anomaly/forecast/webhook
+             backups dan frontend dashboard/inventory/component/test/config
+             backups.

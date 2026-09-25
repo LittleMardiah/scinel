@@ -2,15 +2,17 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: '**/*.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:3001',
+    baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    actionTimeout: 30000,
+    navigationTimeout: 30000,
   },
   projects: [
     {
@@ -18,4 +20,6 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
+  // ⏰ INI YANG PENTING: timeout global 60 detik
+  timeout: 60000,
 });

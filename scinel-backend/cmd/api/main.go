@@ -116,11 +116,12 @@ func main() {
 	mux.HandleFunc("PUT /api/v1/anomalies/{id}", anomalyHandler.UpdateAnomalyStatus)
 	mux.HandleFunc("GET /api/v1/anomalies/{id}/history", anomalyHandler.GetAnomalyHistory)
 
-	// API Keys
-	mux.HandleFunc("POST /api/v1/api-keys", apiKeyHandler.CreateAPIKey)
-	mux.HandleFunc("GET /api/v1/api-keys", apiKeyHandler.ListAPIKeys)
-	mux.HandleFunc("DELETE /api/v1/api-keys/{id}", apiKeyHandler.RevokeAPIKey)
-	mux.HandleFunc("POST /api/v1/api-keys/{id}/rotate", apiKeyHandler.RotateAPIKey)
+	// API Keys (admin-only)
+	adminOnly := middleware.RBACMiddleware("admin")
+	mux.Handle("POST /api/v1/api-keys", adminOnly(http.HandlerFunc(apiKeyHandler.CreateAPIKey)))
+	mux.Handle("GET /api/v1/api-keys", adminOnly(http.HandlerFunc(apiKeyHandler.ListAPIKeys)))
+	mux.Handle("DELETE /api/v1/api-keys/{id}", adminOnly(http.HandlerFunc(apiKeyHandler.RevokeAPIKey)))
+	mux.Handle("POST /api/v1/api-keys/{id}/rotate", adminOnly(http.HandlerFunc(apiKeyHandler.RotateAPIKey)))
 
 	// Webhooks
 	mux.HandleFunc("POST /api/v1/webhooks/subscribe", webhookHandler.CreateSubscription)
@@ -128,9 +129,12 @@ func main() {
 	mux.HandleFunc("DELETE /api/v1/webhooks/subscriptions/{id}", webhookHandler.DeleteSubscription)
 	mux.HandleFunc("GET /api/v1/webhooks/deliveries", webhookHandler.ListDeliveries)
 
+	rateLimiter := middleware.NewRateLimitMiddleware(redisClient, 1000)
 	handlerWithMiddleware := middleware.CORSMiddleware(
 		middleware.SecurityHeaders(
-			middleware.AuthMiddleware(jwtManager)(mux),
+			rateLimiter.Apply(
+				middleware.AuthMiddleware(jwtManager)(mux),
+			),
 		),
 	)
 
