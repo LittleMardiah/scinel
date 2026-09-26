@@ -326,13 +326,41 @@ Referensi cepat:
 
 [TD-N12] File backup .bak ter-track
   Severity : LOW
-  Status   : OPEN
-  Deskripsi: Repository masih memiliki 17 path .bak yang tracked; terdapat backup
-             tambahan yang untracked di luar hitungan ini.
-  Bukti    : `git ls-files -- '*.bak' '*.bak.*' '*.bak*' | wc -l` -> 17;
-             daftar mencakup backend transaction/anomaly/forecast/webhook
-             backups dan frontend dashboard/inventory/component/test/config
-             backups.
+  Status   : FIXED (2026-09-26, W3.2 + W3.2-lanjutan — fully closed)
+  Deskripsi: Repository memiliki 25 path backup .bak yang tracked. Fix W3.2
+             meng-untrack seluruhnya via `git rm --cached` (file tetap di disk)
+             dan menambah blok ignore di .gitignore root. LAPISAN KEDUA
+             (W3.2-lanjutan) menutup gap sisa yang dilaporkan W3.2, dan
+             sekaligus meng-untrack 6 file `scinel-frontend/test-results/`.
+  Bukti    : `git ls-files | grep -c "\.bak"` -> 0 (sebelumnya 25);
+             `git ls-files | grep -c "\.log"` -> 0;
+             `git ls-files | grep -c "playwright-report"` -> 0 (sebelumnya 6);
+             `ls scinel-frontend/tests/e2e/*.bak* | wc -l` -> 7 (masih di disk);
+             find . -name "*.bak*" (di luar node_modules) -> 40 file, utuh.
+             -- W3.2-lanjutan --
+             `git ls-files | grep -c "test-results/"` -> 0 (sebelumnya 6);
+             `git status --short | grep "^??" | grep -cE "\.bak"` -> 0
+             (sebelumnya 21 varian);
+             `git check-ignore -v` pada 4 varian -> `.gitignore:24:*.bak*`;
+             NUL count .gitignore -> 7 sebelum & sesudah edit (utuh).
+  Catatan  : ROOT CAUSE gap W3.2 (bukan "pola literal" semata): pola `.bak.`,
+             `.bak_`, dan `.bak[0-9]` TANPA wildcard tidak match apa pun.
+             Git `wildmatch` (tanpa FNM_PATHNAME) mensyaratkan pencocokan
+             SELURUH basename, sehingga `.bak[0-9]` hanya match file bernama
+             persis `.bak2` — bukan `scinel-e2e.spec.ts.bak2`. Dibuktikan via
+             probe `core.excludesFile`: `.bak[0-9]` -> NOT-IGNORED,
+             `*.bak*` -> match ke-5 varian. Saran W3.2 (`*.bak.*`, `*.bak_*`,
+             `*.bak[0-9]*`) benar arahnya; dikolapsikan jadi satu `*.bak*`
+             agar mencakup seluruh varian dengan 1 baris.
+  Sisa     : (1) `.gitignore` masih punya 7 NUL byte di baris 16-17
+             (`d\0o\0c\0s\0/\0\r\0` + `\0`) sehingga `file` -> "data". TIDAK
+             diubah di W3.2-lanjutan (instruksi: jangan sentuh baris NUL).
+             Tidak merusak parsing — `*.bak` (line 19) & `*.bak*` (line 24)
+             terbukti aktif. ORIGIN: gagal tulis `docs/` via redirect
+             UTF-16LE (PowerShell). (2) `?? scinel-frontend/docs/` masih
+             untracked-tanpa-ignore = efek langsung NUL tsb. (3) `.bak.`,
+             `.bak_`, `.bak[0-9]` sengaja dibiarkan (dead config, tidak match)
+             demi tidak menghapus pattern existing — R4.
 
 [TD-N13] WebhookPublisher.ProcessDeliveries tidak pernah dipanggil
   Severity : HIGH

@@ -1837,3 +1837,133 @@ NOTES:
   - Semua perubahan di-scope: pages/components/tests/lib/jest.config/package.json sesuai tugas.
 
 SELESAI (user commit via PowerShell).
+
+--------------------------------------------------------------------------------
+2026-09-26 — W3.2: CLEANUP .bak TRACKED + UPDATE .gitignore (TD-N12)
+--------------------------------------------------------------------------------
+TASK:
+  1. CEK DULU — `git ls-files | grep -c "\.bak"` -> 25; .gitignore root tanpa
+     pattern .bak/*.log; `git status --short` -> 54 baris (state kotor pre-existing).
+  2. S1 — .gitignore root: tambah blok `=== Backup files ===` (*.bak, .bak., .bak_,
+     .log, !.important.log), `=== Playwright artifacts ===`
+     (scinel-frontend/playwright-report/, scinel-frontend/test-results/),
+     `=== Monorepo logs ===` (*.log, !CHANGELOG.md). Pattern existing TIDAK dihapus.
+  3. S2 — untrack 25 file .bak via loop `git ls-files | grep "\.bak" | while read -r f;
+     git rm --cached -- "$f"` (--cached only, file tetap di disk).
+  4. S3 — `git ls-files | grep -c "\.log"` -> 0 (tidak ada action); untrack 6 file
+     playwright-report.
+  5. AUTO LOG — TECHNICAL_DEBT.txt: TD-N12 OPEN -> FIXED (2026-09-26).
+
+VERIFIKASI (bukti):
+  - V1 `git ls-files | grep -c "\.bak"` -> 0
+  - V2 `git ls-files | grep -cE "\.log$"` -> 0
+  - V3 `grep -anE "^\*\.bak$|^\*\.log$" .gitignore` -> 2 match (line 19, line 30)
+  - V4 `git status --short` -> 25 .bak + 6 playwright-report tampil `D ` (staged
+    deletion, kolom-1); .bak tetap ada di disk
+  - V5 `ls scinel-frontend/tests/e2e/*.bak*` -> 7 file; total 40 .bak* di disk
+
+NOTES / TEMUAN:
+  - .gitignore root file binary-ish: 17 byte terakhir berubah jadi UTF-16LE
+    (`d\0o\0c\0s\0/\0\r\0\n\0`) sehingga `file` -> "data" dan read/grep tanpa `-a`
+    gagal. Git TETAP mem-parse pattern existing dengan benar (dibuktikan via
+    `git check-ignore -v`). Blok baru di-append setelah baris NUL tersebut, tidak
+    ada pattern existing yang diubah.
+  - VALIDASI GAP (reported, tidak diperbaiki — R8 scope): `.bak.` dan `.bak_`
+    LITERAL di gitignore, tidak match varian `.bak.<epoch>`, `.bak_<ts>`,
+    `.bak2..8`. Akibatnya 21 file .bak varian tetap `??` (untracked, belum
+    ignored) dan bisa ter-commit ulang. Saran: `*.bak.*`, `*.bak_*`, `*.bak[0-9]*`.
+  - Di luar scope, TIDAK disentuh: 6 file `scinel-frontend/test-results/` masih
+    tracked walau .gitignore sudah meng-ignore path-nya (S3 hanya mengizinkan
+    playwright-report). perlu `git rm --cached` terpisah.
+  - State kotor pre-existing lain (bukan hasil W3.2, jangan ikut commit tanpa
+    review): `M docs/TEST.txt`, `D scinel-backend/docs/{API,DATABASE,SETUP}.md`,
+    `M scinel-frontend/test-results/.last-run.json`, plus 20 file .bak/.log/
+    prompt.txt/README.md/CHANGELOG.md yang untracked. Catatan: 11 file .log
+    untracked (10 di root + scinel-backend/e2e_debug_*.log) sebelumnya `??`,
+    sekarang jadi IGNORED oleh pattern `*.log` baru —_expected_, bukan dihapus.
+  - Tidak ada file dihapus dari disk. Tidak commit / tidak push.
+
+SELESAI (user commit via PowerShell).
+
+--------------------------------------------------------------------------------
+2026-09-26 — W3.2-lanjutan: FIX .gitignore GAP + UNTRACK test-results
+--------------------------------------------------------------------------------
+TASK:
+  1. CEK DULU — konfirmasi pattern existing, count .bak tracked, count
+     test-results tracked, dan status ignore tiap varian.
+  2. S1 — .gitignore: tambah 3 pattern gap (`.bak[0-9]` + 2 pola wildcard).
+  3. S2 — untrack .bak varian + test-results + playwright-report (--cached).
+  4. V1-V6 — verifikasi.
+  5. AUTO LOG — TECHNICAL_DEBT.txt: TD-N12 -> FIXED fully.
+
+CEK DULU (hasil aktual, berbeda dari briefing):
+  - `git ls-files | grep -c "\.bak"` -> 0, BUKAN 21. Sesi W3.2 lalu sudah
+    meng-untrack 25 .bak (tampil `D ` = staged delete). Yang tersisa 21 file
+    adalah `??` (untracked tapi BELUM ter-ignore) — itu gap-nya, bukan tracking.
+  - `git ls-files | grep -c "test-results/"` -> 6 (2 deliverable S2).
+  - `git ls-files | grep -c "playwright-report/"` -> 0 (SUDAH selesai di W3.2;
+    `git status` yang tersisa 6 baris itu `D ` kolom-1 = staged delete, bukan ` D`).
+  - `git check-ignore -v scinel-frontend/tests/setup.jest.tsx.bak.1785973194`
+    -> exit 1, BELUM ter-ignore. Konfirmasi gap.
+  - `.gitignore` = `file` -> "data" (BINARY), 7 NUL byte, mode 777.
+
+TEMUAN KRITIS — pola yang diminta TIDAK BERFUNGSI (deviasi dari briefing):
+  Pola `.bak.` / `.bak_` / `.bak[0-9]` tidak match apa pun. Git `wildmatch`
+  (tanpa FNM_PATHNAME) mensyaratkan pencocokan SELURUH basename, sehingga
+  `.bak[0-9]` hanya match file bernama PERSIS `.bak2` — bukan
+  `scinel-e2e.spec.ts.bak2`. Root cause-nya "literal", tapi efeknya lebih besar
+  dari dugaan awal: 3 pola itu dead config, bukan sekadar kurang wildcard.
+  Bukti probe `core.excludesFile` (dibuat di .git/, lalu dihapus — nol residu):
+    - hanya `.bak[0-9]`  -> `scinel-e2e.spec.ts.bak2`  NOT-IGNORED
+                          -> `setup.jest.tsx.bak.1785973194` NOT-IGNORED
+    - hanya `*.bak*`     -> match ke-5 varian (bak2, .bak.1785973194,
+                           .bak_20260904_082855, .bak, .bak.1785974191)
+  SOLUSI: tambah `*.bak*` (line 24) sebagai pola fungsional. Saran W3.2
+  (`*.bak.*`, `*.bak_*`, `*.bak[0-9]*`) benar arahnya; dikolapsikan jadi 1 baris.
+  `.bak[0-9]` tetap ditambah sesuai instruksi, tapi DICATAT sebagai dead config.
+  Pola existing TIDAK dihapus (R4).
+
+S2 — CATATAN PENTING (1 percobaan gagal -> perlu 2 percobaan):
+  Loop briefed `git ls-files | grep ... | while read; git rm --cached "$f"`
+  hanya menghasilkan 6 -> 5, bukan 6 -> 0. Penyebab: `git ls-files` ME-QUOTE
+  path non-ASCII (em-dash -> `\342\206\222`) sehingga argumen `git rm` berupa
+  string ber-quote dan gagal; error ditelan `|| true`. 5 file
+  `error-context.md` berganti em-dash = tidak ter-untrack. `.last-run.json`
+  (ASCII) berhasil. Perbaikan: `git ls-files -z` + `read -r -d ''`.
+  Pelajaran: jangan pakai `|| true` pada loop untrack — ia menyembunyikan
+  kegagalan parsial yang terlihat innocent di output.
+
+VERIFIKASI (bukti):
+  - V1 `git ls-files | grep -c "\.bak"` -> 0
+  - V2 `git ls-files | grep -c "test-results/"` -> 0 (dari 6)
+  - V3 `git ls-files | grep -c "playwright-report/"` -> 0
+  - V4 `git status --short | grep "^??" | grep -cE "\.bak"` -> 0 (dari 21)
+        `git check-ignore -v` 4 varian -> `.gitignore:24:*.bak*` (match semua)
+  - V5 `find . -name "*.bak*" -not -path "*/node_modules/*" | wc -l` -> 40
+        (file UTUH di disk, tidak ada yang dihapus; --cached only)
+  - V6 `git status --short` -> 41 staged `D ` (25 .bak + 6 playwright + 6
+        test-results + 4 pre-existing), sisanya ` M` / `??` seperti semula.
+  - NUL integrity: NUL count .gitignore 7 -> 7, size 545 -> 627 (+82, hanya
+    3 baris baru). Edit dilakukan byte-level (python3) pada anchor unik
+    `*.bak\n.bak.\n.bak_\n` agar baris NUL tidak tersentuh.
+
+NOTES / TEMUAN:
+  - `.gitignore` MASIH corrupt: 7 NUL byte di baris 16-17, yaitu
+    `d\0o\0c\0s\0/\0\r\0` + `\0` — hasil gagal tulis `docs/` via redirect
+    UTF-16LE PowerShell. TIDAK diperbaiki (instruksi: jangan sentuh baris NUL).
+    Tidak merusak parsing: `*.bak` (line 19) & `*.bak*` (line 24) terbukti
+    aktif. Efek sampingnya: `?? scinel-frontend/docs/` masih muncul karena
+    intent `docs/` gagal jadi ASCII. REKOMENDASI (butuh approval, sesi terpisah):
+    ganti 2 baris NUL tsb dengan `docs/` ASCII — permanen, satu baris.
+  - Dead config sengaja dibiarkan: `.bak.`, `.bak_`, `.bak[0-9]` tidak match
+    apa pun. Aman (tidak match = tidak salah ignore), tapi membingungkan.
+    Boleh dibersihkan di sesi terpisah bila diizinkan.
+  - Pre-existing dirty state TIDAK disentuh (R4): `M docs/TEST.txt`,
+    `D scinel-backend/docs/{API,DATABASE,SETUP}.md` (worktree del, bukan staged).
+    `M docs/LOGBOOK.txt` & `M docs/TECHNICAL_DEBT.txt` = AUTO LOG sesi ini.
+  - `?? scinel-backend/playwright.config.ts`, `?? CHANGELOG.md`,
+    `?? README.md`, `?? prompt.txt`, `?? scinel-backend/LICENSE` — di luar
+    scope, dibiarkan.
+  - Tidak ada file dihapus dari disk. Tidak commit / tidak push.
+
+SELESAI (user commit via PowerShell).
