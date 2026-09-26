@@ -1,12 +1,13 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3)
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1)
 Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26
 Total entri register: 25 (8 entri lama + 17 TD-N baru)
 TD baru tercatat: 17
 Item lama diverifikasi STALE/PARTIAL: 8
-Item FIXED di W3: TD-N4, TD-N16, A.1 (baseURL Playwright)
+Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
+Item FIXED di W3.1: TD-N17 (Suspense /reset-password)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -429,7 +430,7 @@ Referensi cepat:
 
 [TD-N17] next build gagal prerender /reset-password (useSearchParams tanpa Suspense)
   Severity : HIGH
-  Status   : OPEN (di luar scope W3; blocker V2, lihat catatan scoping di bawah)
+  Status   : FIXED (2026-09-26 — W3.1)
   Deskripsi: Halaman /reset-password memanggil useSearchParams() di level atas
              client component tanpa dibungkus Suspense boundary. Next.js 14
              menolak saat static generation, sehingga `next build` exit 1 dan
@@ -443,9 +444,30 @@ Referensi cepat:
              prerendering page /reset-password"; "Export encountered errors on
              following paths: /(auth)/reset-password/page" -> EXIT=1.
   Provenance: `git status --short "app/(auth)"` -> kosong (tidak disentuh W3);
-             build di HEAD tanpa fix W3 berhenti lebih awal pada TS2339, jadi
-             error ini pre-existing dan baru terungkap setelah tsc hijau.
+              build di HEAD tanpa fix W3 berhenti lebih awal pada TS2339, jadi
+              error ini pre-existing dan baru terungkap setelah tsc hijau.
   Opsi fix (di luar scope W3, perlu otorisasi):
-             (a) bungkus isi halaman dengan <Suspense> di page yang sama; atau
-             (b) tambahkan `export const dynamic = 'force-dynamic';`; atau
-             (c) next.config.js — tapi file itu tidak ada di scope W3.
+              (a) bungkus isi halaman dengan <Suspense> di page yang sama; atau
+              (b) tambahkan `export const dynamic = 'force-dynamic';`; atau
+              (c) next.config.js — tapi file itu tidak ada di scope W3.
+  Perbaikan: Opsi (a) yang dipilih — satu file, tanpa file baru, tanpa
+              `force-dynamic` (R4). Logika asli dipindah 1:1 ke komponen
+              `ResetPasswordContent()`; default export `ResetPasswordPage()`
+              menjadi pembungkus <Suspense> -> <ResetPasswordContent />.
+              Fallback memakai komponen repo yang sudah ada (R6):
+              `Loading` size="lg" (components/common/Loading.tsx), markup
+              identik dengan app/(protected)/layout.tsx:26-30.
+  Bukti 2026-09-26: `npx next build` -> EXIT=0; tabel route menampilkan
+              `/reset-password` = `○ (Static)` 4.54 kB, "Generating static
+              pages (19/19) ✓", dan "Export encountered errors" HILANG.
+              `grep -c "useSearchParams() should be wrapped"` -> 0.
+              `npx tsc --noEmit` -> exit 0. `npx jest` -> 71 suite/113 test PASS
+              (identik dengan baseline TD-N16; `npx jest "reset-password"`
+              -> 1 suite/1 test PASS).
+  Catatan : Blok `useSearchParams` (page.tsx:12-15) tidak berubah baris pun —
+              hanya nama komponen yang berubah. Kedua branch return
+              (:51-76 "Link Tidak Valid" dan :78-112 form) tetap utuh,
+              default export tetap bernama `ResetPasswordPage` sehingga import
+              di tests/app/(auth)/reset-password/page.test.tsx:2 tidak rusak.
+              Tidak ada `force-dynamic`, tidak ada next.config edit.
+

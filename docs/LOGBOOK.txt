@@ -1967,3 +1967,99 @@ NOTES / TEMUAN:
   - Tidak ada file dihapus dari disk. Tidak commit / tidak push.
 
 SELESAI (user commit via PowerShell).
+
+--------------------------------------------------------------------------------
+2026-09-26 — W3.1: FIX TD-N17 (Suspense boundary /reset-password)
+--------------------------------------------------------------------------------
+TASK:
+  1. CEK DULU — baca page.tsx, reproduksi `next build`, cari pola Suspense
+     serupa di repo.
+  2. S1 — bungkus logic useSearchParams dengan <Suspense> (tanpa force-dynamic).
+  3. V1-V4 — verifikasi.
+  4. AUTO LOG — TECHNICAL_DEBT.txt: TD-N17 OPEN -> FIXED (2026-09-26, W3.1).
+
+CEK DULU (bukti):
+  - app/(auth)/reset-password/page.tsx:1 -> `'use client';` = client component.
+  - :4 import `useSearchParams`; :13 `const searchParams = useSearchParams();`;
+    :14 `const token = searchParams.get('token');` — itu culprit-nya.
+  - Folder reset-password hanya berisi page.tsx (TIDAK ada sub-file) -> fix
+    cukup 1 file, tanpa file baru.
+  - `npx next build` -> EXIT=1. Bukti error:
+      log:22  ⨯ useSearchParams() should be wrapped in a suspense boundary at
+              page "/reset-password". Read more: .../missing-suspense-with-csr-bailout
+      log:34  Error occurred prerendering page "/reset-password".
+      log:39-40  Export encountered errors on following paths:
+                 /(auth)/reset-password/page: /reset-password
+  - Ini SATU-SATUNYA blocker build. Sisa output hanya warning: 2x
+    react-hooks/exhaustive-deps (app/(protected)/anomalies/[id]/page.tsx:52,
+    components/settings/WebhookManager.tsx:38) + 1x next.config
+    "Unrecognized key(s) in object: 'strictNullChecks'". Tidak disentuh (R8).
+  - `grep -rl useSearchParams scinel-frontend` -> hanya page.tsx ini + mock
+    di tests/setup.jest.tsx:21. TIDAK ADA file lain di app/ yang memakainya.
+  - `grep -rn "Suspense" app components` -> 0 hasil. Jadi BELUM ada pola
+    Suspense di repo untuk dicontek 100%; R6 tidak bisa dipakai penuh untuk
+    boundary-nya (pakai pola kanonik Next.js 14), tapi dipakai penuh untuk
+    fallback UI-nya (lihat S1).
+
+TEMUAN — FAKTA SALAH DI BRIEFING (2, tidak mengubah kode):
+  1. Prompt: "TD-N17 (MEDIUM, OPEN)". Aktual docs/TECHNICAL_DEBT.txt:431 =
+     Severity HIGH (bukan MEDIUM); Status OPEN benar. Severity TIDAK diubah —
+     HIGH memang tepat karena memblokir `next build` total.
+  2. Prompt label "V2 (build exit 0)" tidak sama dengan penamaan di TD-N17
+     (build = V1, tsc = V2). Log di bawah mengikuti urutan prompt.
+
+S1 — FIX (opsi (a) dari "Opsi fix" TD-N17):
+  - Logika existing dipindah 1:1 ke komponen `ResetPasswordContent()`.
+  - Default export `ResetPasswordPage()` jadi pembungkus:
+    <Suspense fallback={...}><ResetPasswordContent /></Suspense>.
+  - Fallback 100% contek repo (R6): `<div className="flex min-h-screen
+    items-center justify-center"><Loading size="lg" /></div>` — identik dengan
+    app/(protected)/layout.tsx:26-30 dan app/(protected)/dashboard/page.tsx:15-19.
+    Memakai komponen `Loading` yang sudah ada (components/common/Loading.tsx);
+    TIDAK membuat skeleton/spinner baru.
+  - TIDAK memakai `force-dynamic` (R4) — itu opsi (b) yang eksplisit dihindari.
+  - TIDAK menyentuh next.config.js / next.config.mjs (di luar scope; lihat NOTES).
+  - Tidak ada file baru. useEffect validasi token, handleSubmit, dan kedua
+    branch return tidak berubah.
+
+VERIFIKASI:
+  - V1 `npx next build` -> EXIT=0. Tabel route: `/reset-password  4.54 kB
+    132 kB` dengan marker `○ (Static)`; "Generating static pages (19/19) ✓";
+    "Export encountered errors on following paths" HILANG. Warning lama tetap
+    muncul (2 exhaustive-deps + next.config) = tidak ada regresi baru.
+  - V2 `npx tsc --noEmit` -> EXIT=0 (tanpa output).
+  - V3 `npx jest` -> "Test Suites: 71 passed, 71 total" dan "Tests: 113 passed,
+    113 total" -> EXIT=0. Identik dengan baseline TD-N16:423, jadi nol regresi.
+    Suite yang disentuh dicek terpisah: `npx jest "reset-password"` ->
+    1 suite/1 test PASS (EXIT=0).
+  - V4 `git status --short` -> `M scinel-frontend/app/(auth)/reset-password/
+    page.tsx` + `M docs/TECHNICAL_DEBT.txt` + `M docs/LOGBOOK.txt`. Baris
+    lain pre-existing / di luar scope.
+
+NOTES / TEMUAN:
+  - Hanya 1 file kode berubah: 18 baris tambah (2 import, 1 rename fungsi,
+    wrapper 14 baris). 101 baris logika existing tidak tersentuh -> behavior
+    aplikasi tidak berubah, default export tetap `ResetPasswordPage` sehingga
+    import di tests/app/(auth)/reset-password/page.test.tsx:2 tetap valid.
+  - Catatan tooling: `npx jest "tests/app/(auth)/reset-password/page.test.tsx"`
+    gagal ("No tests found") karena `(` `)` dibaca sebagai regex group —
+    bukan kegagalan test. Dicek ulang dengan pattern `npx jest "reset-password"`.
+  - [PERLU VERIFIKASI] next.config: ada DUA file config
+    (next.config.js + next.config.mjs). Next.js memakai yang .js (terbukti
+    dari warning "Invalid next.config.js options"). Duplikat ini pre-existing,
+    di luar scope W3.1 — TIDAK disentuh. Rekomendasi: hapus salah satu di sesi
+    terpisah (perlu approval).
+  - Warning `Unrecognized key(s) in object: 'strictNullChecks'` di
+    next.config.js:3 = pre-existing, di luar scope.
+  - 2 warning react-hooks/exhaustive-deps di file lain = pre-existing.
+  - Tidak ada bypass, tidak ada `any` baru, tidak ada @ts-ignore, tidak ada
+    --no-verify. Tidak commit / tidak push.
+  - [OVERRIDE-1] Prompt: "TD-N17 (MEDIUM)". Kenyataan (bukti): Severity =
+    HIGH (docs/TECHNICAL_DEBT.txt:431). Fix: tidak diubah di kode, hanya
+    dilaporkan. Alignment: TD-N17, R3.
+  - [OVERRIDE-2] Header docs/TECHNICAL_DEBT.txt:9 tidak mencantumkan TD-N12
+    padahal statusnya sudah FIXED (:330). Fix faktual: TD-N12 ditambahkan ke
+    baris "Item FIXED di W3", plus baris baru "Item FIXED di W3.1: TD-N17".
+    Alignment: R6 konsistensi, §11.3.
+
+SELESAI (user commit via PowerShell).
