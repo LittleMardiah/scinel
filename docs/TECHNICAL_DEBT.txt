@@ -1,7 +1,7 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4)
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4, W4-continue, W4.1)
 Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX
 Total entri register: 29 (8 entri lama + 21 TD-N baru)
 TD baru tercatat: 21
@@ -12,6 +12,10 @@ Item FIXED di W4: TD-N2 (audit trail writer), TD-N3 (logout blacklist), TD-N14 (
 Item FIXED di W4-continue: TD-N23 item 1 (align test WithTx)
 Item BARU di W4: TD-N21 (LockForUpdate non-tx-aware), TD-N22 (blacklist Redis fail-open), TD-N23 (cakupan test W4)
 Item BARU di W4-continue: TD-N24 (testify vs sql.Tx data race di -race)
+Item FIXED di W4.1: TD-N24 (testify vs sql.Tx data race di -race) — mocks_test.go
+             mencatat txHandle{} (value type), bukan *sql.Tx mentah; real *sql.Tx
+             ditangkap txRecorder dan dicek SameTx(). time.Sleep sebagai "fix"
+             dihapus, diganti wait sebetu-betunya pada channel detector.
 Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23, W4-continue ke 24.
 ================================================================================
 
@@ -677,8 +681,8 @@ Referensi cepat:
 
 [TD-N24] testify membandingkan *sql.Tx sehingga -race melaporkan data race
   Severity : MEDIUM (test-only; `go test` biasa tetap hijau)
-  Status   : OPEN (menunggu keputusan User/DeepSeek — fix butuh ubah
-             mocks_test.go, di luar scope W4-continue, R8/§11.4.3)
+  Status   : FIXED (2026-09-26, W4.1) — User AUTHORIZE ekspansi scope ke
+             mocks_test.go + inventory_handler_test.go
   Deskripsi: setelah test di-align ke WithTx, `go test -race` (yang dipakai
              `make test`, scinel-backend/Makefile:63) melaporkan DATA RACE
              pada 2 subtest. Bukan bug produksi dan bukan test yang salah —
@@ -703,6 +707,70 @@ Referensi cepat:
              dan (b) memanggil AssertExpectations. Subtest lain tidak kena
              karena tidak memanggil AssertExpectations (hanya
              mockDB.ExpectationsWereMet()).
+  Akar     : BUKAN "AssertExpectations dipanggil sementara WithTx masih commit".
+             Commit sudah SELESAI sebelum assert — sql.Tx tidak bisa dipakai
+             lagi setelah commit, dan `go test` tanpa -race hijau. Yang terjadi:
+             mock kita memanggil m.Called(ctx, tx, ...) sehingga pointer
+             *sql.Tx mentah TERSIMPAN di Call.Arguments, lalu setiap
+             AssertExpectations memformat SETIAP argumen yang terekam dengan
+             %v (mock.go:975, dihitung sebelum perbandingan) — %v pada
+             *sql.Tx mendereferensikan seluruh struct, termasuk field done.
+             Sementara itu beginDC sudah menyalakan goroutine awaitDone yang
+             menulis tx.done saat Commit membatalkan ctx transaksi. Dua akses
+             itu tidak punya happens-before edge sama sekali, jadi race
+             detector akan tetap men-flagnya berapa pun selisih waktunya.
+  FIX      : Opsi (1) dari daftar di bawah — mocks_test.go BERHENTI
+             mengoper *sql.Tx mentah ke m.Called.
+             1. mocks_test.go:79 `type txHandle struct{}` — value type yang
+                direkam testify di posisi argumen tx pada LockForUpdateTx
+                (mocks_test.go:157-163), UpdateQuantityTx (166-172) dan
+                CreateTx (202-206). %v pada struct kosong tidak menyentuh
+                memori transaksi.
+             2. mocks_test.go:84-113 `type txRecorder` (sync.Mutex + []*sql.Tx)
+                di-embed ke MockInventoryRepository (mocks_test.go:121) dan
+                MockTransactionRepository (194); `recordTx(tx)` menangkap
+                pointer ASLI, `SameTx()` (99-113) membandingkan HANYA
+                pointer-nya (tidak pernah membaca isi transaksi) -> race-free
+                by construction.
+             3. inventory_handler_test.go: expectation tx dipersempit dari
+                `mock.Anything` menjadi `txHandle{}` (13 situs: 125-127,
+                204, 220, 234, 269-271, 332-334, 383). Ini bukan weaken:
+                justru MENJADI guard — kalau ada yang merekam *sql.Tx mentah
+                lagi, Arguments.Diff akan gagal dan test merah.
+             4. Dua subtest success kini memakai
+                `assert.True(t, invRepo.SameTx())` + `txnRepo.SameTx()`
+                (inventory_handler_test.go:149-150 dan 286-287): assertion
+                baru yang strengthens bukti bahwa row lock + delta + history
+                insert memakai SATU transaksi non-nil yang sama — invarian
+                atomisitas yang diklaim W4 TD-N14.
+             5. `time.Sleep(20ms)` yang sebelumnya ada di
+                inventory_handler_test.go:124 & 256 (pre-fix) DIHAPUS — memang
+                tidak pernah jadi sinkronisasi — dan diganti helper
+                `waitForDetection()` (inventory_handler_test.go:64-73) yang
+                receive dari channel detector: happens-before edge sungguhan
+                untuk goroutine async handler, plus batas waktu 2 detik.
+  Bukti    : (post-fix)
+             V1 `go build ./...` exit 0.
+             V2 `go test ./... -count=1` 12 paket ok, 0 FAIL.
+             V3 `go test -race ./internal/handler/... -count=1` ->
+                "ok github.com/LittleMardiah/scinel/internal/handler 9.629s",
+                grep -c "DATA RACE" -> 0, grep -c "FAIL" -> 0.
+             V4 `go test -race ./... -count=1` exit 0, 12 "ok", 0 FAIL,
+                grep -c "DATA RACE" -> 0.
+             V5 `go vet ./...` exit 0, tanpa temuan.
+             Anti-flake: `go test -race ./internal/handler/... -count=3` ->
+                "ok ... 26.633s".
+             NEGATIVE CONTROL (R4, buktikan tidak weaken + guard hidup):
+             a. mocks_test.go sementara mengoper tx mentah lagi ->
+                FAIL "1: FAIL: (*sql.Tx=&{...}) != (handler.txHandle={})"
+                (alamat + field tx dipotong di kutipan) pada
+                create_in_transaction_success. Guard txHandle aktif.
+             b. mocks_test.go sementara m.recordTx(nil) ->
+                FAIL "row lock and quantity update must run in the same
+                transaction" pada KEDUA subtest success. SameTx() aktif,
+                bukan kode mati.
+             Kedua mutasi dikembalikan; sha256 mocks_test.go sebelum == sesudah
+             (0b9ba4e5c5b35aa3961b22ee6a47b472312d281e981fcd38d874ddfb07f142a2).
   Catatan : (a) Ini BUKA regresi. Sebelum W4-continue `make test` sudah merah
              pada 7 subtest (bukti SEBELUM di TD-N23); sesudah ini hanya 2
              subtest yang kena race detector, dan `go test ./...` tanpa -race
@@ -710,7 +778,8 @@ Referensi cepat:
              (b) Menambah sleep TIDAK akan menolong: tidak ada
              happens-before edge antara write atomik awaitDone dan read
              lewat reflect di testify, jadi race detector akan tetap
-             men-flag apa pun timing-nya.
+             men-flag apa pun timing-nya. (Bukti: time.Sleep(20ms) sudah ADA
+             di kedua subtest yang kena, dan race tetap muncul.)
              (c) Opsi fix yang tersedia (semua di luar scope W4-continue):
              1. mocks_test.go — jangan oper *sql.Tx mentah ke m.Called;
                 pakai token/penerjemah stabil (mis. "tx") sehingga testify
@@ -723,5 +792,28 @@ Referensi cepat:
              3. Perbaikan di library testify (upstream) — di luar repo ini.
              OpenCode TIDAK memilih sendiri: semua opsi menyentuh file atau
              gaya di luar SCOPE prompt (R8 + §11.4.3) -> STOP & LAPOR.
+             [RESOLVED 2026-09-26 - W4.1] User mengotorisasi ekspansi scope ke
+             mocks_test.go + inventory_handler_test.go, sehingga R8 terpenuhi
+             dan Opsi A/B dari brief W4.1 dijalankan:
+             - Opsi A (tunggu goroutine selesai, baru assert) tidak mungkin
+               dikerjakan: goroutine yang racing (tx.awaitDone) dibuat dan
+               dimiliki internal database/sql. sql.Tx tidak mengekspos channel
+               atau WaitGroup untuk menunggunya, jadi satu-satunya "tunggu"
+               tanpa production change adalah sleep - yang dilarang brief dan
+               terbukti tidak menolong.
+             - Opsi B (assert setelah goroutine yang bisa dilacak selesai)
+               diterapkan untuk goroutine async handler lewat
+               waitForDetection(), yang receive dari channel detector
+               (happens-before edge sungguhan, bukan tebakan waktu).
+             - Untuk goroutine internal database/sql, akar masalahnya bukan
+               urutan waktu melainkan ARGUMEN yang direkam: *sql.Tx mentah
+               tidak boleh masuk ke assertion berbasis reflect. Mock merekam
+               txHandle{} (value type), sedangkan *sql.Tx asli ditahan
+               txRecorder dan diperiksa hanya lewat perbandingan pointer.
+             - Opsi C (sleep) TIDAK dipakai. Opsi 2 pada daftar (c)
+               (ganti AssertExpectations dengan assertion manual) juga tidak
+               dipakai: menutup AssertExpectations akan melemahkan cakupan
+               assertion, sedangkan sanitize argumen + wait yang benar
+               menutup race tanpa mengurangi satu pun assertion.
 
 

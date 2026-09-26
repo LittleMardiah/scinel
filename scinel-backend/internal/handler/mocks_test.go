@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"database/sql"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -62,10 +63,62 @@ func (m *MockUserRepository) CountUsers(ctx context.Context) (int, error) {
 	return args.Int(0), args.Error(1)
 }
 
+// ---- Transaction argument handling ----
+
+// txHandle is what the Tx-aware mocks record in place of the live *sql.Tx.
+//
+// database/sql starts a tx.awaitDone() goroutine for every BeginTx (see
+// database.(*DB).WithTx), and that goroutine writes the internal, atomically
+// guarded done field of the transaction while it tears it down. testify formats
+// every recorded call argument with %v as soon as AssertExpectations diffs the
+// calls (testify mock.Arguments.Diff), and %v on a *sql.Tx dereferences the
+// whole struct - so recording the live object makes every assertion read
+// memory another goroutine owns, i.e. a DATA RACE under `go test -race`.
+// Recording a value type keeps testify away from the transaction; the real one
+// is still captured by txRecorder so tests can assert on it.
+type txHandle struct{}
+
+// txRecorder captures the real *sql.Tx values the Tx-aware mock methods
+// receive, so a test can still verify that one and the same non-nil transaction
+// was used without letting testify reflect on the live value.
+type txRecorder struct {
+	mu  sync.Mutex
+	txs []*sql.Tx
+}
+
+func (r *txRecorder) recordTx(tx *sql.Tx) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.txs = append(r.txs, tx)
+}
+
+// SameTx reports whether at least one call was recorded, none of them got a nil
+// transaction, and all of them got the very same *sql.Tx. Only the pointers are
+// compared - the transaction itself is never read, which is what keeps this
+// race-free.
+func (r *txRecorder) SameTx() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.txs) == 0 {
+		return false
+	}
+	first := r.txs[0]
+	if first == nil {
+		return false
+	}
+	for _, tx := range r.txs[1:] {
+		if tx != first {
+			return false
+		}
+	}
+	return true
+}
+
 // ---- InventoryRepository mock ----
 
 type MockInventoryRepository struct {
 	mock.Mock
+	txRecorder
 }
 
 func (m *MockInventoryRepository) GetBySKU(ctx context.Context, warehouseID, skuID uuid.UUID) (*model.Inventory, error) {
@@ -102,7 +155,8 @@ func (m *MockInventoryRepository) LockForUpdate(ctx context.Context, warehouseID
 }
 
 func (m *MockInventoryRepository) LockForUpdateTx(ctx context.Context, tx *sql.Tx, warehouseID, skuID uuid.UUID) (*model.Inventory, error) {
-	args := m.Called(ctx, tx, warehouseID, skuID)
+	m.recordTx(tx)
+	args := m.Called(ctx, txHandle{}, warehouseID, skuID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -110,7 +164,8 @@ func (m *MockInventoryRepository) LockForUpdateTx(ctx context.Context, tx *sql.T
 }
 
 func (m *MockInventoryRepository) UpdateQuantityTx(ctx context.Context, tx *sql.Tx, warehouseID, skuID uuid.UUID, delta int32) (*model.Inventory, error) {
-	args := m.Called(ctx, tx, warehouseID, skuID, delta)
+	m.recordTx(tx)
+	args := m.Called(ctx, txHandle{}, warehouseID, skuID, delta)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -136,6 +191,7 @@ func (m *MockInventoryRepository) CreateSnapshot(ctx context.Context, snapshot *
 
 type MockTransactionRepository struct {
 	mock.Mock
+	txRecorder
 }
 
 func (m *MockTransactionRepository) Create(ctx context.Context, txn *model.Transaction) (*model.Transaction, error) {
@@ -144,7 +200,8 @@ func (m *MockTransactionRepository) Create(ctx context.Context, txn *model.Trans
 }
 
 func (m *MockTransactionRepository) CreateTx(ctx context.Context, tx *sql.Tx, txn *model.Transaction) (*model.Transaction, error) {
-	args := m.Called(ctx, tx, txn)
+	m.recordTx(tx)
+	args := m.Called(ctx, txHandle{}, txn)
 	return args.Get(0).(*model.Transaction), args.Error(1)
 }
 

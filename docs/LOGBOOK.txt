@@ -2376,3 +2376,120 @@ NOTES / TEMUAN:
 STATUS: V1-V5 PASS (V5 = git status --short, file test + 2 dokumen log
   ter-modify). Menunggu User commit via PowerShell.
   TD-N23 item 1 -> FIXED; TD-N23 item 2 & 3 tetap OPEN; TD-N24 baru OPEN.
+
+--------------------------------------------------------------------------------
+2026-09-26 - W4.1: FIX TD-N24 DATA RACE di inventory_handler_test.go
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 - fix DATA RACE `go test -race` pada 2 subtest
+     (create_in_transaction_success, sku_code_lookup_via_db).
+  2. V1-V6 verifikasi.
+  3. AUTO LOG - TECHNICAL_DEBT.txt (TD-N24 -> FIXED), LOGBOOK.txt.
+  Scope: scinel-backend/internal/handler/mocks_test.go +
+  scinel-backend/internal/handler/inventory_handler_test.go (User AUTHORIZE
+  ekspansi scope atas mocks_test.go) + 2 dokumen log.
+
+ROOT CAUSE (BUKAN hipotesis di brief):
+  Brief menyebut "AssertExpectations dipanggil sementara WithTx masih dalam
+  proses commit". Itu SALAH - commit sudah selesai sebelum assert (sql.Tx
+  tidak bisa dipakai lagi setelah commit, dan `go test` tanpa -race hijau).
+  Bukti sebenarnya:
+  - testify v1.11.1 mock/mock.go:975 memformat SETIAP argumen yang terekam
+    dengan fmt.Sprintf("(%[1]T=%[1]v)") - dihitung SEBELUM perbandingan,
+    jadi format terjadi walau argumennya cuma mock.Anything.
+  - Mock lama memanggil m.Called(ctx, tx, ...) sehingga pointer *sql.Tx
+    mentah TERSIMPAN di Call.Arguments.
+  - %v pada *sql.Tx mendereferensikan SELURUH struct (fmt printValue,
+    reflect/value.go:769), termasuk field done.
+  - database/sql sql.go:1925 (beginDC) menyalakan `go tx.awaitDone()`, yang
+    menulis tx.done lewat atomic.CompareAndSwap (Tx.rollback, sql.go:2325)
+    begitu Commit membatalkan ctx transaksi.
+  - Dua akses itu tidak punya happens-before edge sama sekali.
+  Jejak dari output race: AssertExpectations (mock.go:637) ->
+  checkExpectation (652) -> methodWasCalled (758) -> Arguments.Diff (975) ->
+  fmt.Sprintf -> reflect, read tx.done; write dari awaitDone <- rollback.
+
+KENAPA Opsi A TIDAK MUNGKIN:
+  Goroutine yang racing milik internal database/sql dan tidak punya handle
+  yang bisa di-wait dari luar (sql.Tx tidak mengekspos channel/WaitGroup).
+  Menunggu tanpa production change sama saja dengan sleep. time.Sleep(20ms)
+  SUDAH ADA di kedua subtest yang kena (inventory_handler_test.go:124 & 256
+  pre-fix) dan race tetap muncul - bukti bahwa sleep bukan happens-before.
+  Opsi C (sleep) tidak dipakai. Opsi 2 di TD-N24 (ganti AssertExpectations
+  dengan assertion manual) tidak dipakai karena itu melemahkan cakupan
+  assertion.
+
+SOLUSI (A untuk argumen, B untuk goroutine yang bisa dilacak):
+  1. mocks_test.go:79 `type txHandle struct{}` - value type direkam testify
+     di posisi argumen tx (LockForUpdateTx:157, UpdateQuantityTx:166,
+     CreateTx:202). %v pada struct kosong tidak menyentuh memori transaksi.
+  2. mocks_test.go:84-113 `type txRecorder` (sync.Mutex + []*sql.Tx) di-embed
+     ke MockInventoryRepository:121 dan MockTransactionRepository:194.
+     recordTx(tx) menangkap pointer asli; SameTx() membandingkan HANYA
+     pointer (tidak pernah membaca isi transaksi) -> race-free by
+     construction, dan assertion tx jadi LEBIH kuat dari sebelumnya.
+  3. Expectation tx dipersempit dari mock.Anything ke txHandle{} (13 situs).
+     Ini guard, bukan weaken: kalau *sql.Tx mentah masuk lagi, Arguments.Diff
+     gagal dan test merah (terbukti di negative control).
+  4. Dua subtest success tambah assert.True(t, invRepo.SameTx()) +
+     txnRepo.SameTx() (inventory_handler_test.go:149-150, 286-287): bukti
+     row lock + delta + history insert memakai SATU transaksi non-nil yang
+     sama (invarian atomisitas TD-N14).
+  5. time.Sleep DIHAPUS dari test, diganti waitForDetection()
+     (inventory_handler_test.go:64-73) yang receive dari channel detector -
+     happens-before edge sungguhan untuk goroutine async handler, dengan
+     batas 2 detik.
+  6. Duplikasi setup dihapus: closure newHandler di
+     TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection sekarang
+     memakai newInventoryHandlerWithDetector() yang sama (R6).
+
+HASIL / VERIFIKASI:
+  V1 go build ./...                -> exit 0
+  V2 go test ./... -count=1        -> 12 paket ok, 0 FAIL
+  V3 go test -race ./internal/handler/... -count=1
+                                  -> "ok ... handler 9.629s",
+                                     grep -c "DATA RACE" = 0, FAIL = 0
+  V4 go test -race ./... -count=1  -> exit 0, 12 "ok", 0 FAIL,
+                                     grep -c "DATA RACE" = 0
+  V5 go vet ./...                  -> exit 0, tanpa temuan
+  V6 git status --short            -> hanya 2 file test + 2 dokumen log
+  Anti-flake: go test -race ./internal/handler/... -count=3
+            -> "ok ... 26.633s"
+
+NEGATIVE CONTROL (R4 - buktikan tidak weaken, guard hidup):
+  a. mocks_test.go sementara mengoper *sql.Tx mentah lagi ->
+     FAIL "1: FAIL: (*sql.Tx=&{...}) != (handler.txHandle={})" pada
+     create_in_transaction_success. Jadi txHandle{} di expectation benar-benar
+     mengikat.
+  b. mocks_test.go sementara recordTx(nil) ->
+     FAIL "row lock and quantity update must run in the same transaction"
+     pada KEDUA subtest success. Jadi SameTx() bukan kode mati.
+  Kedua mutasi dikembalikan; sha256 mocks_test.go sebelum == sesudah
+  (0b9ba4e5c5b35aa3961b22ee6a47b472312d281e981fcd38d874ddfb07f142a2).
+
+NOTES / TEMUAN:
+  - [OVERRIDE-1] Brief: "Root cause pasti: AssertExpectations dipanggil
+    sementara WithTx masih dalam proses commit (async rollback detection)".
+    Kenyataan (bukti di atas + sql.Tx must be committed or rolled back):
+    commit sudah selesai saat assert. Akar masalahnya ARGUMEN yang direkam
+    mock, bukan urutan waktu. Fix: A mustahil (tidak ada handle untuk
+    menunggu goroutine internal database/sql tanpa production change), jadi
+    digabung A' (sanitasi argumen di batas mock) + B (wait sungguhan untuk
+    goroutine async handler). Alignment: R1 (root cause, bukan dugaan),
+    R3 (bukti konkret).
+  - [OVERRIDE-2] Brief menyebut lokasi "inventory_handler_test.go:126".
+    Nomor itu benar untuk kondisi pre-fix (AssertExpectations subtest 1).
+  - [RISKO] txHandle{} membuat mock tidak lagi bisa membedakan dua *sql.Tx
+    berbeda lewat expectation. Ditutup txRecorder.SameTx(): untuk 2 subtest
+    success, test kini MELEBIHI apa yang diperiksa dulu (dulu tx hanya
+    mock.Anything, tanpa cek non-nil maupun cek "tx sama").
+  - [PERLU VERIFIKASI] Tidak ada production change, jadi perilaku runtime
+    tidak berubah sama sekali - fix ini murni test-side. Yang belum
+    terverifikasi: perilaku nyata AnomalyService (stub) di Postgres runtime,
+    tidak terkait W4.1.
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test, tidak
+    ada --no-verify, tidak ada time.Sleep sebagai fix, tidak ada
+    AssertExpectations yang dihapus. Tidak commit / tidak push.
+
+STATUS: V1-V6 PASS. TD-N24 -> FIXED (2026-09-26, W4.1). Menunggu User
+  commit via PowerShell.
