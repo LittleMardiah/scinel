@@ -2,6 +2,7 @@ package repository
 
 import (
     "context"
+    "database/sql"
     "fmt"
     "strings"
 
@@ -56,8 +57,44 @@ func (r *transactionRepository) Create(ctx context.Context, txn *model.Transacti
     return &created, nil
 }
 
+// CreateTx inserts a transaction record inside a caller-owned transaction.
+//
+// The INSERT is the same as Create, but it runs on the provided *sql.Tx so the
+// history row shares the fate of the inventory UPDATE that precedes it: either
+// both land or neither does. Note that `details` is still omitted because the
+// column does not exist in the current schema.
+func (r *transactionRepository) CreateTx(ctx context.Context, tx *sql.Tx, txn *model.Transaction) (*model.Transaction, error) {
+    if tx == nil {
+        return nil, fmt.Errorf("transaction must not be nil")
+    }
+    if txn == nil {
+        return nil, fmt.Errorf("transaction record must not be nil")
+    }
+
+    query := `
+        INSERT INTO transactions (id, warehouse_id, sku_id, type, quantity, reason,
+                                  previous_quantity, new_quantity, created_by, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, warehouse_id, sku_id, type, quantity, reason,
+                  previous_quantity, new_quantity, created_by, created_at
+    `
+    var created model.Transaction
+    err := tx.QueryRowContext(ctx, query,
+        txn.ID, txn.WarehouseID, txn.SKUID, txn.Type, txn.Quantity, txn.Reason,
+        txn.PreviousQuantity, txn.NewQuantity, txn.CreatedBy, txn.CreatedAt,
+    ).Scan(
+        &created.ID, &created.WarehouseID, &created.SKUID, &created.Type, &created.Quantity,
+        &created.Reason, &created.PreviousQuantity, &created.NewQuantity, &created.CreatedBy,
+        &created.CreatedAt,
+    )
+    if err != nil {
+        return nil, fmt.Errorf("failed to create transaction: %w", err)
+    }
+    return &created, nil
+}
+
 func (r *transactionRepository) GetByID(ctx context.Context, txnID uuid.UUID) (*model.Transaction, error) {
-    query := transactionSelect + `
+	query := transactionSelect + `
         WHERE t.id = $1
     `
     var txn model.Transaction

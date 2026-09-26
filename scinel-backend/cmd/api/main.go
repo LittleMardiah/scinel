@@ -67,25 +67,35 @@ func main() {
 		cfg.JWT.RefreshExpiry,
 	)
 
-	userRepo := repository.NewUserRepository(db)
-	forecastRepo := repository.NewForecastRepository(db)
-	invRepo := repository.NewInventoryRepository(db)
-	anomalyRepo := repository.NewAnomalyRepository(db)
-	apiKeyRepo := repository.NewAPIKeyRepository(db)
-	webhookRepo := repository.NewWebhookRepository(db)
-	txnRepo := repository.NewTransactionRepository(db)
+    userRepo := repository.NewUserRepository(db)
+    forecastRepo := repository.NewForecastRepository(db)
+    invRepo := repository.NewInventoryRepository(db)
+    anomalyRepo := repository.NewAnomalyRepository(db)
+    apiKeyRepo := repository.NewAPIKeyRepository(db)
+    webhookRepo := repository.NewWebhookRepository(db)
+    txnRepo := repository.NewTransactionRepository(db)
+    auditRepo := repository.NewAuditRepository(db)
 
-	forecastSvc := service.NewForecastService(forecastRepo, invRepo, txnRepo, appLogger)
-	webhookPublisher := service.NewWebhookPublisher(webhookRepo, appLogger)
-	anomalySvc := service.NewAnomalyService(anomalyRepo, invRepo, txnRepo, appLogger, webhookPublisher)
+    // AuditService is wired before the services that hook into it, because
+    // AuditService.Log is non-fatal and its own failures only produce a warn.
+    auditSvc := service.NewAuditService(auditRepo, appLogger)
 
-	authHandler := handler.NewAuthHandler(userRepo, jwtManager, cfg)
-	healthHandler := handler.NewHealthHandler(db, redisClient)
-	forecastHandler := handler.NewForecastHandler(forecastRepo, forecastSvc, redisClient)
-	inventoryHandler := handler.NewInventoryHandler(invRepo, txnRepo, db, anomalySvc, appLogger)
-	anomalyHandler := handler.NewAnomalyHandler(anomalyRepo)
-	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyRepo)
-	webhookHandler := handler.NewWebhookHandler(webhookRepo)
+    forecastSvc := service.NewForecastService(forecastRepo, invRepo, txnRepo, appLogger)
+    webhookPublisher := service.NewWebhookPublisher(webhookRepo, appLogger, auditSvc)
+    anomalySvc := service.NewAnomalyService(anomalyRepo, invRepo, txnRepo, appLogger, webhookPublisher, auditSvc)
+
+    authHandler := handler.NewAuthHandler(userRepo, jwtManager, cfg, handler.AuthDeps{
+        AuditSvc:    auditSvc,
+        RedisClient: redisClient,
+    })
+    healthHandler := handler.NewHealthHandler(db, redisClient)
+    forecastHandler := handler.NewForecastHandler(forecastRepo, forecastSvc, redisClient)
+    inventoryHandler := handler.NewInventoryHandler(invRepo, txnRepo, db, anomalySvc, appLogger, handler.InventoryDeps{
+        AuditSvc: auditSvc,
+    })
+    anomalyHandler := handler.NewAnomalyHandler(anomalyRepo)
+    apiKeyHandler := handler.NewAPIKeyHandler(apiKeyRepo)
+    webhookHandler := handler.NewWebhookHandler(webhookRepo)
 
 	mux := http.NewServeMux()
 
@@ -131,14 +141,14 @@ func main() {
 	mux.HandleFunc("DELETE /api/v1/webhooks/subscriptions/{id}", webhookHandler.DeleteSubscription)
 	mux.HandleFunc("GET /api/v1/webhooks/deliveries", webhookHandler.ListDeliveries)
 
-	rateLimiter := middleware.NewRateLimitMiddleware(redisClient, 1000)
-	handlerWithMiddleware := middleware.CORSMiddleware(
-		middleware.SecurityHeaders(
-			rateLimiter.Apply(
-				middleware.AuthMiddleware(jwtManager)(mux),
-			),
-		),
-	)
+    rateLimiter := middleware.NewRateLimitMiddleware(redisClient, 1000)
+    handlerWithMiddleware := middleware.CORSMiddleware(
+        middleware.SecurityHeaders(
+            rateLimiter.Apply(
+                middleware.AuthMiddleware(jwtManager, redisClient)(mux),
+            ),
+        ),
+    )
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),

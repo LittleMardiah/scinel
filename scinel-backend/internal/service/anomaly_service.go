@@ -1,14 +1,15 @@
 package service
 
 import (
-	"context"
-	"fmt"
-	"time"
+    "context"
+    "encoding/json"
+    "fmt"
+    "time"
 
-	"github.com/google/uuid"
-	"github.com/LittleMardiah/scinel/internal/model"
-	"github.com/LittleMardiah/scinel/internal/repository"
-	"github.com/LittleMardiah/scinel/pkg/timeseries"
+    "github.com/google/uuid"
+    "github.com/LittleMardiah/scinel/internal/model"
+    "github.com/LittleMardiah/scinel/internal/repository"
+    "github.com/LittleMardiah/scinel/pkg/timeseries"
 )
 
 // WebhookPublisherInterface publishes domain events asynchronously.
@@ -26,28 +27,39 @@ const (
 
 // AnomalyService detects anomalies in inventory
 type AnomalyService struct {
-	repo      repository.AnomalyRepository
-	invRepo   repository.InventoryRepository
-	txnRepo   repository.TransactionRepository
-	logger    ServiceLogger
-	publisher WebhookPublisherInterface
+    repo      repository.AnomalyRepository
+    invRepo   repository.InventoryRepository
+    txnRepo   repository.TransactionRepository
+    logger    ServiceLogger
+    publisher WebhookPublisherInterface
+    auditSvc  *AuditService
 }
 
-// NewAnomalyService creates a new anomaly service
+// NewAnomalyService creates a new anomaly service.
+//
+// auditSvc is variadic so existing call sites keep compiling; with no
+// AuditService the ANOMALY_DETECTED audit entry is simply not written.
 func NewAnomalyService(
-	repo repository.AnomalyRepository,
-	invRepo repository.InventoryRepository,
-	txnRepo repository.TransactionRepository,
-	logger ServiceLogger,
-	publisher WebhookPublisherInterface,
+    repo repository.AnomalyRepository,
+    invRepo repository.InventoryRepository,
+    txnRepo repository.TransactionRepository,
+    logger ServiceLogger,
+    publisher WebhookPublisherInterface,
+    auditSvc ...*AuditService,
 ) *AnomalyService {
-	return &AnomalyService{
-		repo:      repo,
-		invRepo:   invRepo,
-		txnRepo:   txnRepo,
-		logger:    logger,
-		publisher: publisher,
-	}
+    as := &AnomalyService{
+        repo:      repo,
+        invRepo:   invRepo,
+        txnRepo:   txnRepo,
+        logger:    logger,
+        publisher: publisher,
+    }
+    for _, a := range auditSvc {
+        if a != nil {
+            as.auditSvc = a
+        }
+    }
+    return as
 }
 
 // DetectAnomalies runs anomaly detection after an inventory transaction.
@@ -120,15 +132,36 @@ func (as *AnomalyService) DetectAnomalies(ctx context.Context, warehouseID, skuI
 		return fmt.Errorf("failed to save anomaly: %w", err)
 	}
 
-	as.logger.Info("Anomaly detected and saved",
-		"anomaly_id", saved.ID,
-		"severity", saved.Severity,
-		"sku_id", skuID,
-		"warehouse_id", warehouseID)
+    as.logger.Info("Anomaly detected and saved",
+        "anomaly_id", saved.ID,
+        "severity", saved.Severity,
+        "sku_id", skuID,
+        "warehouse_id", warehouseID)
 
-	// 5. Publish webhook event (async)
-	as.publisher.PublishAsync(ctx, "anomaly.detected", saved)
-	return nil
+    // 4b. Audit: ANOMALY_DETECTED. System-initiated (no acting user), so
+    // user_id stays NULL. Non-fatal by construction.
+    if raw, err := json.Marshal(map[string]interface{}{
+        "anomaly_id":         saved.ID.String(),
+        "warehouse_id":       warehouseID.String(),
+        "sku_id":             skuID.String(),
+        "sku_code":           saved.SKUCode,
+        "type":               saved.Type,
+        "severity":           string(saved.Severity),
+        "z_score":            saved.ZScore,
+        "detected_value":     saved.DetectedValue,
+        "historical_average": saved.HistoricalAverage,
+    }); err == nil {
+        as.auditSvc.Log(ctx, &model.AuditLog{
+            Action:       model.AuditActionAnomalyDetected,
+            ResourceType: nullableString(model.AuditResourceAnomaly),
+            ResourceID:   nullableString(saved.ID.String()),
+            Details:      raw,
+        })
+    }
+
+    // 5. Publish webhook event (async)
+    as.publisher.PublishAsync(ctx, "anomaly.detected", saved)
+    return nil
 }
 
 // fetchDailyChanges retrieves daily net "out" quantities for a SKU-warehouse

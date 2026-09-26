@@ -19,20 +19,30 @@ import (
 // WebhookPublisher implements WebhookPublisherInterface and handles event
 // publishing, retry with exponential backoff, and dead-letter queueing.
 type WebhookPublisher struct {
-	repo   repository.WebhookRepository
-	logger ServiceLogger
-	client *http.Client
-	// callbackFn, when set, is invoked instead of a real HTTP call. Used by tests.
-	callbackFn func(req *http.Request) (*http.Response, error)
+    repo   repository.WebhookRepository
+    logger ServiceLogger
+    client *http.Client
+    auditSvc *AuditService
+    // callbackFn, when set, is invoked instead of a real HTTP call. Used by tests.
+    callbackFn func(req *http.Request) (*http.Response, error)
 }
 
-// NewWebhookPublisher creates a new webhook publisher
-func NewWebhookPublisher(repo repository.WebhookRepository, logger ServiceLogger) *WebhookPublisher {
-	return &WebhookPublisher{
-		repo:   repo,
-		logger: logger,
-		client: &http.Client{Timeout: 10 * time.Second},
-	}
+// NewWebhookPublisher creates a new webhook publisher.
+//
+// auditSvc is variadic so existing call sites keep compiling; with no
+// AuditService the WEBHOOK_PUBLISHED audit entry is simply not written.
+func NewWebhookPublisher(repo repository.WebhookRepository, logger ServiceLogger, auditSvc ...*AuditService) *WebhookPublisher {
+    wp := &WebhookPublisher{
+        repo:   repo,
+        logger: logger,
+        client: &http.Client{Timeout: 10 * time.Second},
+    }
+    for _, a := range auditSvc {
+        if a != nil {
+            wp.auditSvc = a
+        }
+    }
+    return wp
 }
 
 // PublishAsync implements WebhookPublisherInterface.PublishAsync.
@@ -98,11 +108,26 @@ func (wp *WebhookPublisher) publish(ctx context.Context, eventType string, data 
 		queued++
 	}
 
-	wp.logger.Info("Webhook published", map[string]interface{}{
-		"event_type":    eventType,
-		"event_id":      eventID,
-		"subscriptions": queued,
-	})
+    wp.logger.Info("Webhook published", map[string]interface{}{
+        "event_type":    eventType,
+        "event_id":      eventID,
+        "subscriptions": queued,
+    })
+
+    // Audit: WEBHOOK_PUBLISHED. System-initiated (no acting user), so user_id
+    // stays NULL. Non-fatal by construction.
+    if raw, err := json.Marshal(map[string]interface{}{
+        "event_id":      eventID,
+        "event_type":    eventType,
+        "subscriptions": queued,
+    }); err == nil {
+        wp.auditSvc.Log(ctx, &model.AuditLog{
+            Action:       model.AuditActionWebhookPublished,
+            ResourceType: nullableString(model.AuditResourceWebhookEvent),
+            ResourceID:   nullableString(eventID),
+            Details:      raw,
+        })
+    }
 }
 
 // ProcessDeliveries runs retry logic for pending deliveries whose retry time

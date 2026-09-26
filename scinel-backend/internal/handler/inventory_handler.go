@@ -2,7 +2,9 @@ package handler
 
 import (
     "context"
+    "database/sql"
     "encoding/json"
+    "errors"
     "net/http"
     "strings"
     "time"
@@ -26,6 +28,17 @@ type AnomalyDetector interface {
     DetectAnomalies(ctx context.Context, warehouseID, skuID uuid.UUID) error
 }
 
+// InventoryDeps carries the optional collaborators of InventoryHandler.
+//
+// It is passed as a variadic argument so existing call sites
+// (NewInventoryHandler(invRepo, txnRepo, db, anomalySvc, logger)) keep
+// compiling: with no InventoryDeps the handler behaves exactly as before,
+// i.e. no audit writes.
+type InventoryDeps struct {
+    // AuditSvc receives INVENTORY_CHANGED audit entries. nil disables auditing.
+    AuditSvc *service.AuditService
+}
+
 // InventoryHandler handles inventory-related endpoints
 type InventoryHandler struct {
     invRepo    repository.InventoryRepository
@@ -33,10 +46,17 @@ type InventoryHandler struct {
     db         *database.DB
     anomalySvc AnomalyDetector
     logger     service.ServiceLogger
+    auditSvc   *service.AuditService
 }
 
-func NewInventoryHandler(invRepo repository.InventoryRepository, txnRepo repository.TransactionRepository, db *database.DB, anomalySvc AnomalyDetector, logger service.ServiceLogger) *InventoryHandler {
-    return &InventoryHandler{invRepo: invRepo, txnRepo: txnRepo, db: db, anomalySvc: anomalySvc, logger: logger}
+func NewInventoryHandler(invRepo repository.InventoryRepository, txnRepo repository.TransactionRepository, db *database.DB, anomalySvc AnomalyDetector, logger service.ServiceLogger, deps ...InventoryDeps) *InventoryHandler {
+    h := &InventoryHandler{invRepo: invRepo, txnRepo: txnRepo, db: db, anomalySvc: anomalySvc, logger: logger}
+    for _, d := range deps {
+        if d.AuditSvc != nil {
+            h.auditSvc = d.AuditSvc
+        }
+    }
+    return h
 }
 
 // detectAnomaliesAsync runs anomaly detection in a background goroutine so the
@@ -175,59 +195,87 @@ func (h *InventoryHandler) CreateTransaction(w http.ResponseWriter, r *http.Requ
         // TODO: check warehouse ownership
     }
 
-    currentInv, err := h.invRepo.GetBySKU(r.Context(), warehouseUUID, skuUUID)
-    if err != nil {
-        util.WriteError(w, http.StatusInternalServerError, "Failed to get current stock", err.Error(), requestID)
-        return
-    }
-    if currentInv == nil {
-        util.WriteError(w, http.StatusNotFound, "Inventory record not found", "", requestID)
-        return
-    }
-
+    // Stock movement and its history row are written in ONE transaction:
+    // lock the row, apply the delta, insert the transaction. Either all three
+    // land or none of them do, so a failed history insert can never leave a
+    // silent quantity change behind, and two concurrent requests for the same
+    // SKU are serialised by the row lock instead of overwriting each other.
     var delta int32
-    if req.Type == "in" {
-        delta = req.Quantity
-    } else {
-        if currentInv.Quantity < req.Quantity {
-            util.WriteError(w, http.StatusConflict, "Insufficient stock", "Requested out quantity exceeds available stock", requestID)
-            return
+    var savedTxn *model.Transaction
+    var previousQty, newQty int32
+
+    err = h.db.WithTx(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
+        inv, err := h.invRepo.LockForUpdateTx(ctx, tx, warehouseUUID, skuUUID)
+        if err != nil {
+            return err
         }
-        delta = -req.Quantity
-    }
+        if inv == nil {
+            return repository.ErrInventoryNotFound
+        }
 
-    updatedInv, err := h.invRepo.UpdateQuantity(r.Context(), warehouseUUID, skuUUID, delta)
+        if req.Type == "in" {
+            delta = req.Quantity
+        } else {
+            if inv.Quantity < req.Quantity {
+                return repository.ErrInsufficientStock
+            }
+            delta = -req.Quantity
+        }
+
+        updated, err := h.invRepo.UpdateQuantityTx(ctx, tx, warehouseUUID, skuUUID, delta)
+        if err != nil {
+            return err
+        }
+        previousQty = inv.Quantity
+        newQty = updated.Quantity
+
+        createdBy, _ := uuid.Parse(userInfo.UserID)
+        txn := &model.Transaction{
+            WarehouseID:      warehouseUUID,
+            SKUID:            skuUUID,
+            SKUCode:          inv.SKUCode,
+            Type:             model.TransactionType(req.Type),
+            Quantity:         req.Quantity,
+            Reason:           req.Reason,
+            PreviousQuantity: previousQty,
+            NewQuantity:      newQty,
+            CreatedBy:        createdBy,
+            Details:          req.Details,
+        }
+        txn.CreatedAt = time.Now().UTC()
+
+        savedTxn, err = h.txnRepo.CreateTx(ctx, tx, txn)
+        return err
+    })
     if err != nil {
-        util.WriteError(w, http.StatusInternalServerError, "Failed to update stock", err.Error(), requestID)
+        switch {
+        case errors.Is(err, repository.ErrInventoryNotFound):
+            util.WriteError(w, http.StatusNotFound, "Inventory record not found", "", requestID)
+        case errors.Is(err, repository.ErrInsufficientStock):
+            util.WriteError(w, http.StatusConflict, "Insufficient stock", "Requested out quantity exceeds available stock", requestID)
+        default:
+            util.WriteError(w, http.StatusInternalServerError, "Failed to create transaction", err.Error(), requestID)
+        }
         return
     }
 
-    createdBy, _ := uuid.Parse(userInfo.UserID)
-    txn := &model.Transaction{
-        WarehouseID:      warehouseUUID,
-        SKUID:            skuUUID,
-        SKUCode:          currentInv.SKUCode,
-        Type:             model.TransactionType(req.Type),
-        Quantity:         req.Quantity,
-        Reason:           req.Reason,
-        PreviousQuantity: currentInv.Quantity,
-        NewQuantity:      updatedInv.Quantity,
-        CreatedBy:        createdBy,
-        Details:          req.Details,
-    }
-    txn.CreatedAt = time.Now().UTC()
+    // --- Post-commit side effects (must not run inside the transaction) ---
 
-    savedTxn, err := h.txnRepo.Create(r.Context(), txn)
-    if err != nil {
-        util.WriteError(w, http.StatusInternalServerError, "Failed to record transaction", err.Error(), requestID)
-        return
-    }
-
-    go func() {
-        _ = h.invRepo.InvalidateCache(context.Background(), warehouseUUID, skuUUID)
-    }()
+    _ = h.invRepo.InvalidateCache(r.Context(), warehouseUUID, skuUUID)
 
     go h.detectAnomaliesAsync(warehouseUUID, skuUUID)
+
+    h.logAudit(r.Context(), r, model.AuditActionInventoryChanged, map[string]interface{}{
+        "transaction_id":    savedTxn.ID.String(),
+        "warehouse_id":       warehouseUUID.String(),
+        "sku_id":             skuUUID.String(),
+        "sku_code":           savedTxn.SKUCode,
+        "type":               req.Type,
+        "quantity":           req.Quantity,
+        "previous_quantity":  previousQty,
+        "new_quantity":       newQty,
+        "reason":             req.Reason,
+    }, &savedTxn.CreatedBy)
 
     resp := transactionResponse{
         ID:               savedTxn.ID.String(),
@@ -242,6 +290,30 @@ func (h *InventoryHandler) CreateTransaction(w http.ResponseWriter, r *http.Requ
         CreatedAt:        savedTxn.CreatedAt,
     }
     util.WriteResponse(w, http.StatusCreated, "Transaction created", resp, requestID)
+}
+
+// logAudit appends an INVENTORY_CHANGED audit entry. It is called only after a
+// successful commit and never fails the request: AuditService.Log is itself
+// non-fatal, and a nil service short-circuits.
+func (h *InventoryHandler) logAudit(ctx context.Context, r *http.Request, action string, details map[string]interface{}, actorID *uuid.UUID) {
+    if h.auditSvc == nil {
+        return
+    }
+
+    ip := service.ExtractIP(r)
+    userAgent := service.ExtractUserAgent(r)
+
+    entry := &model.AuditLog{
+        Action:    action,
+        UserID:    actorID,
+        IPAddress: optionalString(ip),
+        UserAgent: optionalString(userAgent),
+    }
+    if raw, err := json.Marshal(details); err == nil {
+        entry.Details = raw
+    }
+
+    h.auditSvc.Log(ctx, entry)
 }
 
 // ==================== ENDPOINT 2: GET /api/v1/transactions ====================

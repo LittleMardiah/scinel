@@ -16,8 +16,6 @@ type inventoryRepository struct {
     db *database.DB
 }
 
-var errInsufficientStock = errors.New("insufficient stock")
-
 // NewInventoryRepository creates a new inventory repository instance
 func NewInventoryRepository(db *database.DB) InventoryRepository {
     return &inventoryRepository{db: db}
@@ -211,7 +209,7 @@ func (r *inventoryRepository) UpdateQuantity(ctx context.Context, warehouseID, s
 
         newQuantity := currentQuantity + delta
         if newQuantity < 0 {
-            return errInsufficientStock
+            return ErrInsufficientStock
         }
 
         _, err = tx.ExecContext(ctx, `
@@ -231,15 +229,115 @@ func (r *inventoryRepository) UpdateQuantity(ctx context.Context, warehouseID, s
         return nil
     })
     if err != nil {
-        if errors.Is(err, errInsufficientStock) {
-            return nil, errInsufficientStock
+        if errors.Is(err, ErrInsufficientStock) {
+            return nil, ErrInsufficientStock
         }
         return nil, err
     }
     return updatedInventory, nil
 }
 
+// LockForUpdateTx locks the inventory row inside a caller-owned transaction.
+// Unlike LockForUpdate, the row lock survives until that transaction commits or
+// rolls back, so the subsequent read-modify-write cannot interleave with a
+// concurrent transaction.
+//
+// "FOR UPDATE OF i" restricts the lock to the inventory row: a bare FOR UPDATE
+// on a query with JOINs would also lock the warehouses and skus rows, turning
+// unrelated stock movements into lock contention and deadlock candidates.
+//
+// Returns ErrInventoryNotFound when the row does not exist.
+func (r *inventoryRepository) LockForUpdateTx(ctx context.Context, tx *sql.Tx, warehouseID, skuID uuid.UUID) (*model.Inventory, error) {
+    if tx == nil {
+        return nil, fmt.Errorf("transaction must not be nil")
+    }
+
+    query := `
+        SELECT
+            i.id, i.warehouse_id, i.sku_id,
+            s.sku_code, w.name AS warehouse_name, s.name AS sku_name,
+            i.quantity, i.reorder_point, i.max_stock_level,
+            i.last_restock_date, i.last_transaction_id,
+            i.created_at, i.updated_at
+        FROM inventory i
+        JOIN warehouses w ON i.warehouse_id = w.id
+        JOIN skus s ON i.sku_id = s.id
+        WHERE i.warehouse_id = $1 AND i.sku_id = $2
+        FOR UPDATE OF i
+    `
+
+    var inv model.Inventory
+    var lastTransactionID *uuid.UUID
+    err := tx.QueryRowContext(ctx, query, warehouseID, skuID).Scan(
+        &inv.ID, &inv.WarehouseID, &inv.SKUID,
+        &inv.SKUCode, &inv.WarehouseName, &inv.SKUName,
+        &inv.Quantity, &inv.ReorderPoint, &inv.MaxStockLevel,
+        &inv.LastRestockDate, &lastTransactionID,
+        &inv.CreatedAt, &inv.UpdatedAt,
+    )
+    if errors.Is(err, sql.ErrNoRows) {
+        return nil, ErrInventoryNotFound
+    }
+    if err != nil {
+        return nil, fmt.Errorf("failed to lock inventory: %w", err)
+    }
+    inv.LastTransactionID = lastTransactionID
+    return &inv, nil
+}
+
+// UpdateQuantityTx applies delta to the inventory row inside a caller-owned
+// transaction and returns the resulting level.
+//
+// The quantity is re-read with FOR UPDATE rather than computed by the caller,
+// so the guard against a negative result cannot be bypassed by a stale value.
+// The caller is still expected to hold the lock from LockForUpdateTx; this
+// re-read makes the method safe on its own as well.
+func (r *inventoryRepository) UpdateQuantityTx(ctx context.Context, tx *sql.Tx, warehouseID, skuID uuid.UUID, delta int32) (*model.Inventory, error) {
+    if tx == nil {
+        return nil, fmt.Errorf("transaction must not be nil")
+    }
+
+    var currentQuantity int32
+    err := tx.QueryRowContext(ctx, `
+        SELECT quantity
+        FROM inventory
+        WHERE warehouse_id = $1 AND sku_id = $2
+        FOR UPDATE
+    `, warehouseID, skuID).Scan(&currentQuantity)
+    if errors.Is(err, sql.ErrNoRows) {
+        return nil, ErrInventoryNotFound
+    }
+    if err != nil {
+        return nil, fmt.Errorf("failed to lock inventory: %w", err)
+    }
+
+    newQuantity := currentQuantity + delta
+    if newQuantity < 0 {
+        return nil, ErrInsufficientStock
+    }
+
+    if _, err := tx.ExecContext(ctx, `
+        UPDATE inventory
+        SET quantity = $1, updated_at = NOW()
+        WHERE warehouse_id = $2 AND sku_id = $3
+    `, newQuantity, warehouseID, skuID); err != nil {
+        return nil, fmt.Errorf("failed to update inventory quantity: %w", err)
+    }
+
+    return &model.Inventory{
+        WarehouseID: warehouseID,
+        SKUID:       skuID,
+        Quantity:    newQuantity,
+    }, nil
+}
+
 // LockForUpdate locks inventory record for update in a transaction
+//
+// Deprecated: LockForUpdate is non-tx-aware; gunakan LockForUpdateTx dalam
+// WithTx. Non-tx tidak memegang lock. This method runs FOR UPDATE on a pooled
+// connection with no surrounding transaction, so PostgreSQL wraps the
+// statement in an implicit transaction that commits immediately and the row
+// lock is already gone when this function returns.
 func (r *inventoryRepository) LockForUpdate(ctx context.Context, warehouseID, skuID uuid.UUID) (*model.Inventory, error) {
     query := `
         SELECT

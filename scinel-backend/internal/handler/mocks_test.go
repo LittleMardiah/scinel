@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -100,6 +101,22 @@ func (m *MockInventoryRepository) LockForUpdate(ctx context.Context, warehouseID
 	return args.Get(0).(*model.Inventory), args.Error(1)
 }
 
+func (m *MockInventoryRepository) LockForUpdateTx(ctx context.Context, tx *sql.Tx, warehouseID, skuID uuid.UUID) (*model.Inventory, error) {
+	args := m.Called(ctx, tx, warehouseID, skuID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Inventory), args.Error(1)
+}
+
+func (m *MockInventoryRepository) UpdateQuantityTx(ctx context.Context, tx *sql.Tx, warehouseID, skuID uuid.UUID, delta int32) (*model.Inventory, error) {
+	args := m.Called(ctx, tx, warehouseID, skuID, delta)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Inventory), args.Error(1)
+}
+
 func (m *MockInventoryRepository) GetBySKUCached(ctx context.Context, warehouseID, skuID uuid.UUID) (*model.Inventory, error) {
 	args := m.Called(ctx, warehouseID, skuID)
 	return args.Get(0).(*model.Inventory), args.Error(1)
@@ -123,6 +140,11 @@ type MockTransactionRepository struct {
 
 func (m *MockTransactionRepository) Create(ctx context.Context, txn *model.Transaction) (*model.Transaction, error) {
 	args := m.Called(ctx, txn)
+	return args.Get(0).(*model.Transaction), args.Error(1)
+}
+
+func (m *MockTransactionRepository) CreateTx(ctx context.Context, tx *sql.Tx, txn *model.Transaction) (*model.Transaction, error) {
+	args := m.Called(ctx, tx, txn)
 	return args.Get(0).(*model.Transaction), args.Error(1)
 }
 

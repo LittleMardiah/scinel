@@ -2063,3 +2063,316 @@ NOTES / TEMUAN:
     Alignment: R6 konsistensi, §11.3.
 
 SELESAI (user commit via PowerShell).
+
+--------------------------------------------------------------------------------
+2026-09-26 — W4: S1 AUDIT TRAIL + S2 LOGOUT BLACKLIST + S3 ATOMIC INVENTORY TX
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 — audit trail end-to-end (model/repo/service/hook 5 event/wiring).
+  2. S2 — logout blacklist Redis (middleware + handler + wiring).
+  3. S3 — CreateTransaction atomik (WithTx + 3 method tx-aware).
+  4. V1-V11 verifikasi.
+  5. AUTO LOG — TECHNICAL_DEBT.txt: TD-N2/N3/N14 -> FIXED, +TD-N21/N22.
+
+CEK DULU (bukti):
+  - docs/TEAM_CONTRACT.md v2.2 dibaca penuh (R2 scope, R4 no-bypass, R8 stop).
+  - Migration `000009_create_audit_log_table.up.sql:1-16` = 8 kolom:
+    id UUID PK, user_id UUID NULL REFERENCES users ON DELETE SET NULL,
+    action VARCHAR(50) NOT NULL, resource_type VARCHAR(50),
+    resource_id VARCHAR(100), details JSONB, ip_address INET,
+    user_agent TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW().
+    -> SEMUA kolom nullable dipetakan ke POINTER (R4: no silent zero-value).
+  - `grep -rn -i "audit" --include=*.go .` -> 0 hasil di luar migration
+    (konfirmasi TD-N2: tidak ada writer).
+  - `grep -rn "Begin|WithTx" internal/handler/*.go` -> 0 (konfirmasi TD-N14).
+  - `grep -rn "LockForUpdate(" --include=*.go .` -> hanya interface+impl+mock,
+    TIDAK ada call site produksi (penting untuk keputusan deprecate-not-delete).
+  - LockForUpdate lama = `r.db.QueryRowContext(... FOR UPDATE)` di luar transaksi
+    -> implicit transaction PostgreSQL commit seketika = row lock tidak pernah
+    dipegang. Jadi deprecate (bukan delete) = pilihan conservative & benar.
+  - Baseline sebelum edit: `go build ./...` PASS, `go test ./...` PASS.
+  - Konvensi JSONB yang dipakai repo (R6): webhook_repository_impl.go:173
+    `insertWebhook` meng-JSON-marshal payload lalu bind ke string lalu menulis
+    ke kolom JSONB. AuditRepository memakai pola yang sama (bukan []byte mentah).
+
+S1 — AUDIT TRAIL:
+  - NEW internal/model/audit.go (47 baris): struct AuditLog 1:1 dengan
+    migration; `Details json.RawMessage`; `CreatedAt time.Time`; +
+    `UserEmail string` (field Go, `db:"user_email"` — hasil LEFT JOIN, bukan
+    kolom migration). Konstanta action (LOGIN/LOGOUT/INVENTORY_CHANGED/
+    ANOMALY_DETECTED/WEBHOOK_PUBLISHED) + resource type.
+  - NEW internal/repository/audit_repository.go (23 baris): interface
+    Create(ctx, *model.AuditLog) error; GetByUser(ctx, userID, limit, offset).
+  - NEW internal/repository/audit_repository_impl.go (123 baris):
+    Create -> ExecContext, JSONB via marshal->string, pointer NULL via helper;
+    GetByUser -> SELECT dengan `LEFT JOIN users u ON u.id = a.user_id`,
+    `a.details::text` (konsisten dgn insertWebhook), ORDER BY created_at DESC
+    + id DESC (tiebreak), limit default 50 / clamp max 200.
+  - NEW internal/service/audit_service.go (180 baris): AuditService
+    {repo, logger *ServiceLogger}. `Log()` NON-FATAL: error -> logger.Warn
+    ("audit_log_write_failed") lalu return, TIDAK pernah propagated ke caller
+    (PRD: "audit failure tidak boleh rollback operasi bisnis"). Mengisi default
+    CreatedAt=now bila kosong + trim string kosong -> nil. Helper
+    `ExtractIP` (X-Forwarded-For[0] -> X-Real-IP -> RemoteAddr, diparse
+    `net.SplitHostPort`) dan `ExtractUserAgent` (truncate 512).
+  - 5 hook terpasang (V2):
+      LOGIN              -> auth_handler.go:305 (SETELAH token terbit)
+      LOGOUT             -> auth_handler.go:441 (SETELAH blacklist)
+      INVENTORY_CHANGED  -> inventory_handler.go:268 (SETELAH commit)
+      ANOMALY_DETECTED   -> service/anomaly_service.go:154 (SETELAH save)
+      WEBHOOK_PUBLISHED  -> service/webhook_service.go:124 (SETELAH queue)
+    Semua via AuditService.Log -> non-fatal by construction.
+  - Wiring: cmd/api/main.go:77 auditRepo, :81 auditSvc, diteruskan ke
+    WebhookPublisher(:84), AnomalyService(:85), AuthHandler(:88),
+    InventoryHandler(:94).
+
+S2 — LOGOUT BLACKLIST:
+  - middleware/auth.go: constructor jadi variadic
+    `AuthMiddleware(jwtManager, redisClient ...*redis.Client)` -> call site lama
+    `AuthMiddleware(jwtManager)` tetap compile (backward compatible, R4).
+    Helper exported: `BlacklistKey(token) = "blacklist:" + hex(sha256(token))`
+    (raw token TIDAK pernah jadi key — pattern sama util/jwt.go tokenDigest
+    yang di-drop), `IsTokenRevoked`, `RevokeToken` (SET + TTL sisa `exp`).
+    Urutan: blacklist check -> baru VerifyAccessToken. Timeout 200ms
+    (blacklistTimeout) supaya Redis lambat tidak menunda semua request.
+  - FAIL-OPEN disengaja + KOMENTAR EKSPLISIT (V7, middleware/auth.go:88-104):
+    Redis error -> `log.Printf("warn: token blacklist unavailable, allowing
+    request: %v", err)` lalu LANJUT (availability > security). Dicatat sebagai
+    TD-N22, bukan disembunyikan.
+  - Logout (auth_handler.go:400-430): resolve `exp` access token dari header
+    Authorization DAN refresh token dari body -> blacklist keduanya dengan TTL
+    masing-masing. Default bila `revoked` > 0. + audit LOGOUT.
+  - Refresh guard (auth_handler.go:337-346): cek blacklist refresh token
+    SEBELUM issue access token baru, 401 "Token has been revoked".
+  - Wiring: main.go:87-90 AuthDeps.RedisClient; :144 AuthMiddleware(jwt, redis).
+
+S3 — ATOMIC TRANSACTION:
+  - inventory_repository.go: +LockForUpdateTx, +UpdateQuantityTx (signature
+    persis brief), + 2 sentinel: `ErrInventoryNotFound`, `ErrInsufficientStock`.
+    LockForUpdate lama diberi marker `// Deprecated:` (V6).
+  - inventory_repository_impl.go:250 LockForUpdateTx -> `FOR UPDATE OF i`
+    (LIMIT 1, FOR UPDATE OF i =OF Inventory i saja, bukan join lain);
+    :295 UpdateQuantityTx -> re-read `SELECT quantity FROM inventory WHERE
+    ... FOR UPDATE` lalu guard `quantity+delta < 0` -> ErrInsufficientStock
+    (race-safe: delta diterapkan di bawah lock yang sama).
+  - transaction_repository_impl.go:66 CreateTx -> insert + return row
+    (`RETURNING id`), sama bentuk dengan Create non-tx.
+  - handler/inventory_handler.go:207 `h.db.WithTx(...)`:
+      LockForUpdateTx -> UpdateQuantityTx -> CreateTx
+    Semuanya dalam SATU `*sql.Tx`. `errors.Is` memetakan sentinel ->
+    404 (not found) / 409 (insufficient stock) — sebelumnya keduanya 500
+    (re INI) adalah TD-N1 yang membaik).
+  - Efek samping PINDAH ke POST-COMMIT (:259-270): InvalidateCache, async
+    anomaly detection (tetap `go` + tidak menunggu), audit INVENTORY_CHANGED.
+    Invariant: tidak ada cache invalidation / audit / anomaly kalau rollback.
+  - mocks_test.go: +3 mock method (LockForUpdateTx, UpdateQuantityTx, CreateTx)
+    dengan import `database/sql`.
+
+VERIFIKASI (bukti):
+  - V1 `grep -c "auditSvc|auditRepo" cmd/api/main.go` -> 6 (butuh >=2) PASS.
+        Baris: 77, 81, 84, 85, 88, 94.
+  - V2 `grep -rn "logAudit|auditSvc.Log" internal/handler internal/service`
+        -> 14 baris, 5 titik hook (LUTAS) PASS.
+  - V3 `grep -c blacklist` -> middleware/auth.go 9, handler/auth_handler.go 17
+        (butuh >=4) PASS.
+  - V4 `grep -c WithTx internal/handler/inventory_handler.go` -> 1 (butuh
+        >=1) PASS.
+  - V5 `grep -rn "LockForUpdateTx|UpdateQuantityTx|CreateTx" internal/repository`
+        -> 16 baris (butuh >=9) PASS.
+  - V6 `grep -c "Deprecated: LockForUpdate" inventory_repository_impl.go`
+        -> 1 (butuh =1) PASS.
+  - V7 `grep -n "fail-open" internal/middleware/auth.go` -> :88, :98 PASS.
+  - V8 `go build ./...` -> PASS (exit 0).
+  - V9 `go test ./... -count=1` -> FAIL, HANYA di
+        github.com/LittleMardiah/scinel/internal/handler, 7 subtest (lihat
+        BLOCKER di bawah). Semua paket lain PASS (cmd/api, config, database,
+        middleware, model, repository, service, util, pkg/logger,
+        pkg/timeseries, tests/integration).
+  - V10 `go vet ./...` -> PASS (exit 0).
+  - V11 `git status --short` -> 4 file NEW (audit.go x4) + 11 file kode
+        MODIFIED, PERSIS = daftar scope brief. Tidak ada file di luar scope
+        yang berubah. `middleware/auth_test.go` TIDAK perlu disentuh
+        (variadic menjaga kompatibilitas — `go test ./internal/middleware` PASS).
+        `service/*_test.go` & `tests/integration/auth_flow_test.go` juga tidak
+        perlu disentuh. Pre-existing dirty state TIDAK disentuh.
+
+BLOCKER — go test ./... belum hijau (R8 STOP, JANGAN dipaksa):
+  - File: scinel-backend/internal/handler/inventory_handler_test.go
+    (TIDAK ada di scope test yang diotorisasi brief W4 item 18-19).
+  - 7 subtest FAIL, semua karena S3 mengganti call pattern:
+      TestInventoryHandler_CreateTransaction/create_in_transaction_success
+        (expected 201, got 500 "Failed to create transaction")
+      TestInventoryHandler_CreateTransaction/insufficient_stock_for_out_transaction
+      TestInventoryHandler_CreateTransaction/inventory_not_found (404 -> 500)
+      TestInventoryHandler_CreateTransaction/sku_code_lookup_via_db (201 -> 500)
+      TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection/
+        detection_triggered_with_warehouse_and_sku_of_the_transaction
+      TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection/
+        detection_error_does_not_change_the_response
+      TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection/
+        detection_not_triggered_when_transaction_is_rejected
+  - Akar masalah: test masih men-stub `GetBySKU` / `UpdateQuantity` /
+    `txnRepo.Create` dan TIDAK meng-expect `BEGIN`/`COMMIT` di sqlmock, padahal
+    handler kini memanggil `WithTx` + `LockForUpdateTx` + `UpdateQuantityTx` +
+    `CreateTx`. Mocks SUDAH punya ketiganya (brief item 13) — hanya ekspektasi
+    test yang perlu di-align.
+  - Perbaikan yang DIMINTA (menunggu persetujuan User): ganti stub per subtest
+    dengan `ExpectBegin` -> `LockForUpdateTx` -> `UpdateQuantityTx` -> `CreateTx`
+    -> `ExpectCommit`, dan set `invRepo.GetBySKUTx`-equivalent via mock
+    LockForUpdateTx. Assertion status HTTP (201/404/409) dan isi field txn
+    TIDAK diubah — ini re-alignment, bukan weaken test.
+  - TIDAK dikerjakan karena R8 + §11.4.3 (scope expansion = STOP & LAPOR).
+
+NOTES / TEMUAN:
+  - [OVERRIDE-1] Prompt: "Tambahkan TD-N21 dan TD-N22". Saya menambah TIGA entri
+    (TD-N21/N22/N23): TD-N23 mendokumentasikan 7 subtest yang gagal + 2 jalur
+    baru lain yang belum bertes (blacklist miniredis, audit unit test). Alasan:
+    R4/no-hide-problems — register harus jujur soal V9 yang merah. Header
+    dihitung ulang: 25->28 total, 17->20 TD baru. Hapus TD-N23 bila User
+    insisting pada hitungan persis 2 entri.
+  - [OVERRIDE-2] Nomor lompat: TD-N18/N19/N20 tidak pernah dipakai di repo
+    (`grep -rn "TD-N1[89]|TD-N20"` -> 0). Nomor 21-23 dipakai agar tidak
+    bentrok dengan item W4 berikutnya; dicatat di header register.
+  - [OVERRIDE-3] Prompt V6 meminta komentar literal
+    `// Deprecated: gunakan LockForUpdateTx dalam WithTx. Non-tx tidak memegang
+    lock.` tapi V6 grep-nya `Deprecated: LockForUpdate`. Dua-duanya tak
+    bisa simultan pada satu baris. Yang dipakai (inventory_repository.go:44-52
+    dan impl:335-339): `// Deprecated: LockForUpdate is non-tx-aware; gunakan
+    LockForUpdateTx dalam WithTx. Non-tx tidak memegang lock.` -> memenuhi
+    grep V6 (=1) DAN mengulang argumen "non-tx tidak memegang lock".
+  - [PERLU VERIFIKASI] Isi tabel audit_log di Postgres runtime belum diuji
+    (butuh DB hidup + migration 000009 ter-apply). Yang diuji: compile + 5 hook
+    terpasang + signature repo.
+  - [PERLU VERIFIKASI] Jalur fail-open Redis belum pernah dieksekusi test
+    (middleware test hanya panggil AuthMiddleware(jwtManager) tanpa redis).
+  - Jitter: `blacklistTimeout` 200ms diduplikasi di middleware & handler
+    (const package-private masing-masing) agar 2 paket tidak saling import.
+    Nilai sama; coupling dihindari.
+  - Sentinel error ErrInventoryNotFound/ErrInsufficientStock =Penambahan di luar
+    daftar eksplisit brief, tapi file-nya (inventory_repository.go) authorized
+    dan ErrNotFound SUDAH ada sebelumnya; hanya di-export + dipakai errors.Is
+    (R4: sentinel, bukan string compare).
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test, tidak
+    ada --no-verify. Tidak commit / tidak push.
+
+SELESAI — S1/S2/S3 terimplementasi + build & vet hijau; V9 terblokir R8 pada
+file test di luar scope (menunggu otorisasi User).
+
+--------------------------------------------------------------------------------
+2026-09-26 — W4-continue: ALIGN inventory_handler_test.go KE POLA WithTx
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 — realign test helper + 7 subtest ke WithTx (LockForUpdateTx /
+     UpdateQuantityTx / CreateTx + ExpectBegin/Commit/Rollback di sqlmock).
+  2. V1-V5 verifikasi.
+  3. AUTO LOG — TECHNICAL_DEBT.txt (TD-N23 item 1 -> FIXED, +TD-N24),
+     LOGBOOK.txt.
+  Scope: scinel-backend/internal/handler/inventory_handler_test.go (User
+  AUTHORIZE ekspansi scope atas file test) + 2 dokumen log.
+
+HASIL:
+  - 8 subtest di-align. Tujuh di antaranya memang FAIL; kedelapan
+    (get current stock error) sebelumnya "PASS" karena alasan yang salah
+    (500 dari BEGIN yang gagal, bukan dari error repository).
+  - Status HTTP assertion TIDAK diubah. Tidak ada test case yang dihapus.
+  - Tiap subtest kinijuganya assert mockDB.ExpectationsWereMet() sehingga
+    siklus BEGIN/COMMIT/ROLLBACK ikut terverifikasi, bukan cuma status HTTP.
+  - Verifikasi: V1 go build exit 0 | V2 handler 0 FAIL | V3 go test ./...
+    12 paket ok + 1 tanpa test file | V4 go vet exit 0 | V5 git status.
+
+CEK DULU (temuan faktual):
+  - Helper newTestInventoryHandler (inventory_handler_test.go:43-54) SUDAH
+    mengembalikan sqlmock.Sqlmock sebagai nilai ke-5. Brief Item 1 ("helper:
+    return sqlmock handle") tidak berlaku — lihat OVERRIDE-1.
+  - Yang justru membuang handle sqlmock adalah closure lokal `newHandler`
+    di TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection
+    (`sqlDB, _, err := sqlmock.New()`). Closure itu kini mengembalikan
+    handle sebagai nilai ke-4.
+  - Signatures mock (mocks_test.go, sudah ada dari W4):
+    LockForUpdateTx m.Called(ctx, tx, whID, skuID)  -> 4 arg  (:104)
+    UpdateQuantityTx m.Called(ctx, tx, whID, skuID, delta) -> 5 arg (:112)
+    CreateTx        m.Called(ctx, tx, txn)         -> 3 arg  (:146)
+    Karena itu assert field txn pada CreateTx berpindah dari args.Get(1)
+    ke args.Get(2).
+  - Root cause 7 FAIL: WithTx (internal/database/transaction.go:20)
+    memanggil BeginTx; sqlmock tanpa ExpectBegin mengembalikan "call to
+    database transaction Begin, was not expected" (go-sqlmock@v1.5.2
+    sqlmock.go:245) -> WithTx:24 wrap -> inventory_handler.go:257 default
+    -> 500. Konvensi pen Expectations diambil dari
+    internal/database/transaction_test.go:20-21,36-37 (ExpectBegin /
+    ExpectCommit / ExpectRollback eksplisit, tanpa helper wrapper).
+
+PERUBAHAN PER SUBTEST (semua di inventory_handler_test.go):
+  - create_in_transaction_success      :81  BEGIN -> Lock -> Update(10)
+                                         -> CreateTx -> COMMIT
+  - insufficient_stock_for_out (:168) : BEGIN -> Lock(5) -> ROLLBACK (409)
+  - inventory_not_found          (:190) : BEGIN -> Lock(nil) -> ROLLBACK (404)
+  - get_current_stock_error      (:203) : BEGIN -> Lock(err) -> ROLLBACK (500)
+  - sku_code_lookup_via_db       (:221) : ExpectQuery skus (di luar tx, harus
+                                         didahulukan) -> BEGIN -> 3 mock tx
+                                         -> COMMIT (201)
+  - TriggersAnomalyDetection expectSuccess (:279) + 2 subtest success:
+                                         BEGIN -> Lock -> Update(-10)
+                                         -> CreateTx -> COMMIT
+  - TriggersAnomalyDetection rejected (:355): BEGIN -> Lock(nil) -> ROLLBACK
+
+BUKTI NEGATIVE CONTROL (R4: buktikan tidak weaken):
+  Dua mutasi sementara pada file test, lalu dikembalikan persis:
+  1. create_in_transaction_success: ExpectCommit -> ExpectRollback
+     -> FAIL (500, "there is a remaining expectation which was not matched:
+     ExpectedRollback").
+  2. get_current_stock_error: hapus ExpectBegin
+     -> FAIL ("remaining expectation ... ExpectedRollback").
+  Setelah revert: `grep -c MUTATION-NEGATIVE-CONTROL` -> 0, dan
+  go build/vet/test hijau ulang. Jadi ekspektasi baru benar-benar mengikat.
+
+TEMUAN BARU (TD-N24) — STOP & LAPOR, TIDAK DI-FIX:
+  `go test -race` (yang dipakai `make test`, scinel-backend/Makefile:63)
+  melaporkan DATA RACE pada 2 subtest. Bukan bagian V1-V5, tapi saya
+  Execute karena Makefile memakainya sebagai perintah tes kanonik.
+  - Read: inventory_handler_test.go:126 invRepo.AssertExpectations ->
+    testify mock.go:637/652/758/975 Arguments.Diff ->
+    fmt.Sprintf("(%[1]T=%[1]v)") -> reflect membaca field sql.Tx.done.
+  - Write: database/sql (*Tx).awaitDone (sql.go:2221) -> Tx.rollback
+    (sql.go:2327) -> atomic.CompareAndSwapUint32(&tx.done), dari goroutine
+    beginDC yang dibuat WithTx (transaction.go:20).
+  - Kenapa hanya 2 subtest: hanya yang (a) menyelesaikan COMMIT dan
+    (b) memanggil AssertExpectations. Subtest lain tidak memanggil
+    AssertExpectations (hanya mockDB.ExpectationsWereMet()).
+  - BUKA regresi: sebelum W4-continue `make test` sudah merah pada 7
+    subtest (bukti di TD-N23). Verifikasi wajib V1-V5 (`go test` tanpa
+    -race) 100% hijau.
+  - Menambah sleep tidak menolong: tidak ada happens-before edge antara
+    write atomik awaitDone dan read lewat reflect di testify.
+  -_fix_ butuh salah satu: (1) mocks_test.go berhenti mengoper *sql.Tx
+    mentah ke m.Called; (2) ganti AssertExpectations dengan assertion
+    manual per-argumen di file test; (3) perbaikan upstream testify.
+    Ketiganya di luar SCOPE prompt -> R8 + §11.4.3 -> STOP, tunggu
+    keputusan User/DeepSeek.
+
+NOTES / TEMUAN:
+  - [OVERRIDE-1] Brief: "helper: return sqlmock handle (sqlmock.Sqlmock) agar
+    subtest bisa set ExpectBegin/Commit/Rollback". Kenyataan
+    (inventory_handler_test.go:43-54): helper SUDAH mengembalikan
+    sqlmock.Sqlmock sebagai nilai ke-5 sejak awal. Fix: tidak mengubah
+    signature helper; yang diubah adalah closure `newHandler` di
+    TriggersAnomalyDetection yang membuang handle. Alignment: R2 (kode =
+    source of truth) + R3.
+  - [OVERRIDE-2] Brief menyebut 7 subtest; realignment diterapkan ke 8.
+    Alasan: `get current stock_error` (inventory_handler_test.go:192)
+    sudah "PASS" sebelum fix, tetapi hanya karena WithTx gagal di BEGIN dan
+    handler jatuh ke cabang default 500 — bukan karena LockForUpdateTx
+    mengembalikan error. Di-align juga supaya benar-benar menguji jalur
+    error yang diklaim. Alignment: R4 (no bypass, no hide).
+  - [OVERRIDE-3] Brief menyebut "TriggerAnomalyDetection: expectSuccess untuk
+    2 subtest". Real kode test punya 3 subtest; yang ketiga (rejected) juga
+    butuh Begin/Rollback agar tidak balik jadi 500. Ketiganya di-align.
+  - [PERLU VERIFIKASI] Isi tabel audit_log di Postgres runtime belum diuji
+    (tidak terkait W4-continue; masih sama seperti W4).
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test,
+    tidak ada --no-verify, tidak ada testify yang di-dipatch/disable.
+    Tidak commit / tidak push.
+
+STATUS: V1-V5 PASS (V5 = git status --short, file test + 2 dokumen log
+  ter-modify). Menunggu User commit via PowerShell.
+  TD-N23 item 1 -> FIXED; TD-N23 item 2 & 3 tetap OPEN; TD-N24 baru OPEN.

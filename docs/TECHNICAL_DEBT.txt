@@ -1,13 +1,18 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1)
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26
-Total entri register: 25 (8 entri lama + 17 TD-N baru)
-TD baru tercatat: 17
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4)
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX
+Total entri register: 29 (8 entri lama + 21 TD-N baru)
+TD baru tercatat: 21
 Item lama diverifikasi STALE/PARTIAL: 8
 Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
 Item FIXED di W3.1: TD-N17 (Suspense /reset-password)
+Item FIXED di W4: TD-N2 (audit trail writer), TD-N3 (logout blacklist), TD-N14 (transaksi atomik)
+Item FIXED di W4-continue: TD-N23 item 1 (align test WithTx)
+Item BARU di W4: TD-N21 (LockForUpdate non-tx-aware), TD-N22 (blacklist Redis fail-open), TD-N23 (cakupan test W4)
+Item BARU di W4-continue: TD-N24 (testify vs sql.Tx data race di -race)
+Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23, W4-continue ke 24.
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -217,7 +222,7 @@ Referensi cepat:
 
 [TD-N2] Tidak ditemukan writer audit trail di aplikasi
   Severity : HIGH
-  Status   : OPEN (tabel ada; isi database runtime tidak diverifikasi)
+  Status   : FIXED (2026-09-26 — W4)
   Deskripsi: Migration membuat tabel audit_log, tetapi pencarian kode Go tidak
              menemukan INSERT atau pemanggil audit; klaim runtime nol harus dibaca
              sebagai tidak ada writer aplikasi.
@@ -225,16 +230,61 @@ Referensi cepat:
              scinel-backend/migrations/000009_create_audit_log_table.down.sql:1-5;
              `git grep -n -i audit -- '*.go' '*.sql'` hanya mengembalikan kedua
              migration tersebut.
+  Perbaikan: writer audit ditambahkan dan di-wire penuh:
+             - internal/model/audit.go (struct mencermin migration 000009, kolom
+               nullable = pointer, Details = json.RawMessage).
+             - internal/repository/audit_repository.go +
+               audit_repository_impl.go (Create; GetByUser dengan
+               LEFT JOIN users, insert JSONB lewat string + `details::text`
+               seperti konvensi webhook_repository_impl.go:173).
+             - internal/service/audit_service.go (Log non-fatal: error hanya
+               logger.Warn; helper ExtractIP / ExtractUserAgent).
+             - cmd/api/main.go:77,81,84,85,88,94 (auditRepo + auditSvc, diteruskan
+               ke WebhookPublisher, AnomalyService, AuthHandler, InventoryHandler).
+             - 5 hook event terpasang: LOGIN (auth_handler.go:305),
+               LOGOUT (auth_handler.go:441), INVENTORY_CHANGED
+               (inventory_handler.go:268), ANOMALY_DETECTED
+               (service/anomaly_service.go:154), WEBHOOK_PUBLISHED
+               (service/webhook_service.go:124).
+  Bukti 2026-09-26: `go build ./...` PASS; `go vet ./...` PASS;
+             `grep -c "auditSvc|auditRepo" cmd/api/main.go` -> 6;
+             `grep -rn "logAudit|auditSvc.Log" internal/handler internal/service`
+             -> 14 baris, 5 titik hook.
+  Catatan : belum ada endpoint READ untuk audit_log (GetByUser sudah ada di
+             repository/service, belum diekspos lewat HTTP) — lihat TD-N23.
+             [PERLU VERIFIKASI] isi tabel audit_log di database runtime belum
+             diuji (butuh Postgres hidup + migration 000009 ter-apply).
 
 [TD-N3] Logout tidak mencabut token
   Severity : HIGH
-  Status   : OPEN (unit logout tests pass; token revocation belum ada)
+  Status   : FIXED (2026-09-26 — W4)
   Deskripsi: Logout hanya memverifikasi refresh token dan selalu mengembalikan
              200; token tidak disimpan di blacklist/revocation store.
   Bukti    : scinel-backend/internal/handler/auth_handler.go:234-260;
              scinel-backend/internal/util/jwt.go:19-23,104-122;
              scinel-backend/internal/handler/auth_handler_test.go:321-356;
              `go test -mod=readonly ./internal/handler -run 'TestAuthHandler_Logout' -count=1` -> PASS.
+  Perbaikan: pencabutan token ditambahkan di dua sisi.
+             - Penyimpanan: middleware/auth.go:146-165 (BlacklistKey = "blacklist:"
+               + sha256 hex token; RevokeToken SET dengan TTL = sisa masa hidup
+               token). Raw token tidak pernah menjadi key Redis.
+             - Penegakan: middleware/auth.go:88-104 menolak 401 "Token has been
+               revoked" bila digest ada; auth_handler.go:337-346 (/auth/refresh)
+               mengecek blacklist refresh_token SEBELUM menerbitkan access token
+               baru.
+             - Logout: auth_handler.go:400-430 memblacklist access token dari
+               header Authorization DAN refresh token dari body, masing-masing
+               dengan TTL = sisa `exp` miliknya.
+             - Wiring: cmd/api/main.go:87-90 (AuthDeps.RedisClient) dan :144
+               (middleware.AuthMiddleware(jwtManager, redisClient)).
+  Bukti 2026-09-26: `go build ./...` PASS; `go vet ./...` PASS;
+             `grep -c blacklist internal/middleware/auth.go` -> 9;
+             `grep -c blacklist internal/handler/auth_handler.go` -> 17;
+             `go test ./internal/handler -run TestAuthHandler -count=1` PASS
+             (semua subtest, tanpa RedisClient = jalur backward-compatible).
+  Catatan : fail-open disengaja — lihat TD-N22. Belum ada test blacklist dengan
+             miniredis pada W4 (middleware test hanya memanggil
+             AuthMiddleware(jwtManager) tanpa redis) — lihat TD-N23.
 
 [TD-N4] Frontend gagal typecheck pada handler Select
   Severity : HIGH
@@ -381,7 +431,7 @@ Referensi cepat:
 
 [TD-N14] CreateTransaction tidak atomik (tidak ada transaksi DB)
   Severity : MEDIUM
-  Status   : OPEN (ditemukan saat wiring W2b/W2c 2026-09-25)
+  Status   : FIXED (2026-09-26 — W4)
   Deskripsi: Handler mengubah stok lalu menulis transaksi sebagai dua operasi
              terpisah tanpa BEGIN/COMMIT. Bila pencatatan transaksi gagal,
              quantity sudah berubah tanpa riwayat, dan dua request paralel bisa
@@ -393,6 +443,28 @@ Referensi cepat:
              LockForUpdate hanya dideklarasikan di
              internal/repository/inventory_repository.go:32 dan
              inventory_repository_impl.go:243.
+  Perbaikan: seluruh mutasi dipindah ke dalam satu database.WithTx
+             (handler/inventory_handler.go:207-255):
+               LockForUpdateTx -> UpdateQuantityTx -> CreateTx,
+             lalu efek samping (InvalidateCache, deteksi anomali, audit) dipindah ke
+             SETELAH commit (handler/inventory_handler.go:259-270).
+             Metode baru: repository/inventory_repository_impl.go:250
+             (LockForUpdateTx, `FOR UPDATE OF i`) dan :295 (UpdateQuantityTx,
+             re-read `FOR UPDATE` + guard quantity < 0);
+             repository/transaction_repository_impl.go:66 (CreateTx).
+             Error dipetakan dengan errors.Is ke sentinel baru
+             repository.ErrInventoryNotFound / ErrInsufficientStock ->
+             HTTP 404 / 409 (handler/inventory_handler.go:248-255).
+  Bukti 2026-09-26: `go build ./...` PASS; `go vet ./...` PASS;
+             `grep -c WithTx internal/handler/inventory_handler.go` -> 1;
+             `grep -rn "LockForUpdateTx|UpdateQuantityTx|CreateTx" internal/repository`
+             -> 16 baris.
+  Catatan : `go test ./internal/handler -run TestInventoryHandler` masih FAIL
+             (7 subtest) karena mocks_test.go sudah punya LockForUpdateTx/
+             UpdateQuantityTx/CreateTx tapi inventory_handler_test.go masih
+             men-stub GetBySKU/UpdateQuantity/Create dan tidak meng-expect
+             BEGIN/COMMIT di sqlmock. File test tersebut DI LUAR scope brief W4
+             sehingga belum disentuh — perlu otorisasi (lihat TD-N23).
 
 [TD-N15] Deteksi anomali hanya berbasis transaksi "out" dan butuh 5 titik harian
   Severity : MEDIUM
@@ -470,4 +542,186 @@ Referensi cepat:
               default export tetap bernama `ResetPasswordPage` sehingga import
               di tests/app/(auth)/reset-password/page.test.tsx:2 tidak rusak.
               Tidak ada `force-dynamic`, tidak ada next.config edit.
+
+[TD-N21] LockForUpdate non-tx-aware: row lock hilang sebelum dipakai
+  Severity : HIGH (ditemukan saat implementasi W4 2026-09-26)
+  Status   : OPEN (sudah di-deprecate, belum dihapus)
+  Deskripsi: LockForUpdate menjalankan `SELECT ... FOR UPDATE` lewat
+             db.QueryRowContext, yaitu koneksi pool TANPA transaksi eksplisit.
+             PostgreSQL membungkus statement tunggal itu dalam implicit
+             transaction yang commit seketika setelah statement selesai, sehingga
+             row lock sudah dilepas sebelum caller sempat memakainya. Metode ini
+             terlihat pessimistic-locking tetapi tidak memberi mutual exclusion
+             apa pun — dan tidak ada call site yang memakainya, jadi tidak ada
+            TTY yang saat ini salah believing.
+  Bukti    : internal/repository/inventory_repository_impl.go:341-360
+             (LockForUpdate -> r.db.QueryRowContext + `FOR UPDATE`, tanpa
+             BEGIN/COMMIT); bandingan: LockForUpdateTx di :250 memakai
+             tx.QueryRowContext di dalam db.WithTx.
+             `grep -rn "LockForUpdate(" --include=*.go .` -> hanya definisi
+             interface + impl + mock, tidak ada call site di luar test.
+  Perbaikan: sudah di-deprecate dengan marker godoc di
+             internal/repository/inventory_repository.go:44-52 dan
+             inventory_repository_impl.go:335-339
+             ("Deprecated: LockForUpdate is non-tx-aware; gunakan
+             LockForUpdateTx dalam WithTx. Non-tx tidak memegang lock.").
+             Semua jalur produksi sudah pindah ke LockForUpdateTx (TD-N14).
+  Sisa    : method masih ada di interface. Menghapusnya = breaking change pada
+             InventoryRepository (mock test + implementor), jadi tidak dilakukan
+             di W4. Rekomendasi: hapus di W5 bersama migrasi test.
+
+[TD-N22] Blacklist token Redis memakai fail-open
+  Severity : MEDIUM (keputusan sadar, bukan bug — ditemukan saat W4 2026-09-26)
+  Status   : OPEN (disengaja, didokumentasikan)
+  Deskripsi: Penegakan blacklist (middleware/auth.go:88-104 dan
+             auth_handler.go:337-346) gagal-terbuka: bila Redis tidak
+             tidak terjangkau (unreachable), error Redis di-log sebagai warn lalu request
+             DIJALANKAN tanpa checking blacklist. Trade-off: availability >
+             security — outage Redis tidak boleh membuat seluruh API menolak
+             semua request terautentikasi. Konsekuensi: selama Redis down,
+             token yang sudah di-logout masih bisa dipakai sampai access/refresh
+             token-nya kedaluwarsa (access 1 jam, refresh 7 hari per
+             config/config.go:59-60).
+  Bukti    : internal/middleware/auth.go:88-104 (komentar "fail-open",
+             `log.Printf("warn: token blacklist unavailable, allowing
+             request: %v", err)` lalu lanjut ke VerifyAccessToken);
+             internal/handler/auth_handler.go:171-180 (isBlacklisted mengembalikan
+             false + warn saat error).
+  Mitigasi : TTL blacklist = sisa `exp` token, jadi paparan maksimum dibatasi
+             oleh masa hidup token (bukan selamanya); key Redis hanya sha256 digest.
+  Opsi (perlu keputusan User/DeepSeek, jangan dieksekusi tanpa persetujuan):
+             (a) fail-CLOSED hanya untuk /auth/refresh (izu refresh issuance
+                 saat Redis down = kecil), fail-open untuk access token; atau
+             (b) local in-memory cache blacklist sebagai lapis kedua sehingga
+                 instance yang baru saja menerima logout tetap menolak; atau
+             (c) biarkan seperti sekarang + alert Redis down di monitoring.
+  Catatan : [PERLU VERIFIKASI] perilaku fail-open BELUM diuji otomatis — test
+             middleware yang ada hanya memanggil AuthMiddleware(jwtManager)
+             tanpa Redis, jadi jalur error Redis belum pernah dieksekusi.
+
+[TD-N23] Cakupan test W4 belum menutup 3 jalur baru
+  Severity : MEDIUM (ditemukan saat verifikasi W4 2026-09-26)
+  Status   : PARTIAL — item 1 FIXED (2026-09-26 — W4-continue); item 2 & 3 OPEN
+  Deskripsi: tiga hal terlewat oleh brief W4 dan tidak boleh diperbaiki sendiri
+             (R8) karena file-nya di luar scope:
+             1. [FIXED 2026-09-26 — W4-continue] internal/handler/
+                inventory_handler_test.go (7 subtest FAIL) — masih men-stub
+                GetBySKU/UpdateQuantity/txnRepo.Create dan tidak meng-expect
+                BEGIN/COMMIT di sqlmock, padahal handler kini memakai WithTx +
+                LockForUpdateTx + UpdateQuantityTx + CreateTx.
+             2. Tidak ada test blacklist dengan miniredis (auth_handler_test.go
+                dan middleware/auth_test.go tetap di jalur tanpa RedisClient).
+             3. AuditRepository/AuditService belum punya unit test sama sekali,
+                dan GetByUser belum diekspos lewat HTTP (tidak ada endpoint
+                audit read; repository+service sudah siap).
+  Bukti    : [SEBELUM] `go test ./... -count=1` -> FAIL hanya di
+             github.com/LittleMardiah/scinel/internal/handler, 7 subtest:
+             TestInventoryHandler_CreateTransaction/{create_in_transaction_
+             success, insufficient_stock_for_out_transaction, inventory_not_
+             found, sku_code_lookup_via_db} dan
+             TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection/
+             {detection_triggered_with_warehouse_and_sku_of_the_transaction,
+             detection_error_does_not_change_the_response,
+             detection_not_triggered_when_transaction_is_rejected}.
+             [SEBELUM] Root cause: WithTx (internal/database/transaction.go:20)
+             memanggil BeginTx; sqlmock tanpa ExpectBegin mengembalikan
+             "call to database transaction Begin, was not expected"
+             (go-sqlmock@v1.5.2 sqlmock.go:245) -> WithTx:24 wrap -> handler
+             inventory_handler.go:257 cabang default -> 500.
+             [SESUDAH] `go build ./...` exit 0; `go vet ./...` exit 0;
+             `go test ./... -count=1` -> 12 paket ok + 1 tanpa test file,
+             0 FAIL. 13 subtest TestInventoryHandler_CreateTransaction dan 3
+             subtest TriggersAnomalyDetection PASS.
+  Perbaikan: 8 subtest di-align ke pola WithTx (bukan weaken). Setiap subtest
+             kini meng-expect siklus transaksi yang Driven oleh database.DB.
+             WithTx, memakai konvensi yang sudah dipakai
+             internal/database/transaction_test.go:20-21,36-37 (ExpectBegin /
+             ExpectCommit / ExpectRollback eksplisit, tanpa helper wrapper).
+             - helper: newTestInventoryHandler (inventory_handler_test.go:43)
+               SUDAH mengembalikan sqlmock.Sqlmock sebagai nilai ke-5, jadi
+               tidak berubah. Yang sebelumnya membuang handle adalah closure
+               lokal newHandler di TestInventoryHandler_CreateTransaction_
+               TriggersAnomalyDetection — kini mengembalikan handle ke-4.
+             - create_in_transaction_success (line 81): ExpectBegin ->
+               LockForUpdateTx -> UpdateQuantityTx(10) -> CreateTx ->
+               ExpectCommit. Assert field txn pindah dari args.Get(1) ke
+               args.Get(2) karena CreateTx m.Called(ctx, tx, txn)
+               (mocks_test.go:146-149).
+             - insufficient_stock_for_out_transaction (line 168): ExpectBegin
+               -> LockForUpdateTx(5) -> ExpectRollback (409).
+             - inventory_not_found (line 190): ExpectBegin ->
+               LockForUpdateTx(typed nil) -> ExpectRollback (404).
+             - get_current_stock_error (line 203): ExpectBegin ->
+               LockForUpdateTx(error) -> ExpectRollback (500). Subtest ini
+               sebelumnya "PASS" hanya karena Begin gagal, bukan karena error
+               repo; sekarang benar-benar menguji jalur error tersebut.
+             - sku_code_lookup_via_db (line 221): ExpectQuery skus (di luar tx,
+               jadi didahulukan) -> ExpectBegin -> 3 mock tx -> ExpectCommit.
+             - TriggersAnomalyDetection: expectSuccess (line 279) +
+               2 subtest success pakai Begin + 3 mock tx + Commit; subtest
+               rejected (line 355) pakai Begin + Lock nil + Rollback.
+             Setiap subtest kini juga assert mockDB.ExpectationsWereMet() agar
+             siklus BEGIN/COMMIT/ROLLBACK ikut diverifikasi, bukan cuma status
+             HTTP. Status HTTP (201/404/409/500/400/401) tidak diubah dan
+             tidak ada test case yang dihapus.
+  Catatan : memperbaiki item 1 BUKAN weaken test — status HTTP yang diassert
+             (201/404/409) dan nilai field txn yang diassert tetap sama; hanya
+             method yang di-stub yang berubah mengikuti pola WithTx.
+             Diverifikasi dengan negative control: mengganti ExpectCommit ->
+             ExpectRollback pada create_in_transaction_success dan menghapus
+             ExpectBegin pada get_current_stock_error membuat KEDUA subtest
+             FAIL, jadi ekspektasi baru benar-benar mengikat.
+  Sisa    : item 2 (test blacklist miniredis) dan item 3 (unit test
+             AuditRepository/AuditService + endpoint audit read) masih OPEN —
+             file-nya di luar scope W4-continue (R8).
+
+[TD-N24] testify membandingkan *sql.Tx sehingga -race melaporkan data race
+  Severity : MEDIUM (test-only; `go test` biasa tetap hijau)
+  Status   : OPEN (menunggu keputusan User/DeepSeek — fix butuh ubah
+             mocks_test.go, di luar scope W4-continue, R8/§11.4.3)
+  Deskripsi: setelah test di-align ke WithTx, `go test -race` (yang dipakai
+             `make test`, scinel-backend/Makefile:63) melaporkan DATA RACE
+             pada 2 subtest. Bukan bug produksi dan bukan test yang salah —
+             tapi interaksi testify <-> database/sql yang tidak bisa
+             diselesaikan dari file test saja.
+  Bukti    : `go test ./internal/handler/ -race -run
+             TestInventoryHandler_CreateTransaction` ->
+             "race detected during execution of test" pada
+             create_in_transaction_success dan sku_code_lookup_via_db.
+             Trace: goroutine utama READ di
+             inventory_handler_test.go:126 (invRepo.AssertExpectations) ->
+             testify mock.(*Mock).AssertExpectations (mock.go:637) ->
+             checkExpectation (mock.go:652) -> methodWasCalled (mock.go:758) ->
+             Arguments.Diff (mock.go:975) -> fmt.Sprintf("(%[1]T=%[1]v)")
+             -> reflect.Value.Interface/packEface membaca field sql.Tx.done.
+             Goroutine lain WRITE di database/sql.(*Tx).awaitDone
+             (sql.go:2221) -> Tx.rollback (sql.go:2327) ->
+             atomic.CompareAndSwapUint32(&tx.done). Goroutine itu dibuat oleh
+             database/sql.(*DB).beginDC <- WithTx (transaction.go:20) <-
+             CreateTransaction (inventory_handler.go:207).
+             Syarat: hanya 2 subtest yang (a) benar-benar menyelesaikan COMMIT
+             dan (b) memanggil AssertExpectations. Subtest lain tidak kena
+             karena tidak memanggil AssertExpectations (hanya
+             mockDB.ExpectationsWereMet()).
+  Catatan : (a) Ini BUKA regresi. Sebelum W4-continue `make test` sudah merah
+             pada 7 subtest (bukti SEBELUM di TD-N23); sesudah ini hanya 2
+             subtest yang kena race detector, dan `go test ./...` tanpa -race
+             (verifikasi wajib V1-V5) 100% hijau.
+             (b) Menambah sleep TIDAK akan menolong: tidak ada
+             happens-before edge antara write atomik awaitDone dan read
+             lewat reflect di testify, jadi race detector akan tetap
+             men-flag apa pun timing-nya.
+             (c) Opsi fix yang tersedia (semua di luar scope W4-continue):
+             1. mocks_test.go — jangan oper *sql.Tx mentah ke m.Called;
+                pakai token/penerjemah stabil (mis. "tx") sehingga testify
+                tidak pernah mem-string-ify sql.Tx. Paling bersih, tapi
+                melemahkan pengecekan tipe argumen tx.
+             2. inventory_handler_test.go — ganti AssertExpectations dengan
+                assertion manual per-argumen yang tidak mem-format argumen
+                index-1 (tx). Mempertahankan cakupan, tapi menulis ulang
+                gaya assertion test.
+             3. Perbaikan di library testify (upstream) — di luar repo ini.
+             OpenCode TIDAK memilih sendiri: semua opsi menyentuh file atau
+             gaya di luar SCOPE prompt (R8 + §11.4.3) -> STOP & LAPOR.
+
 

@@ -2,6 +2,7 @@ package repository
 
 import (
     "context"
+    "database/sql"
 
     "github.com/google/uuid"
     "github.com/LittleMardiah/scinel/internal/model"
@@ -11,6 +12,12 @@ import (
 type TransactionRepository interface {
     // Create inserts a new transaction record
     Create(ctx context.Context, txn *model.Transaction) (*model.Transaction, error)
+
+    // CreateTx inserts a new transaction record inside a caller-owned
+    // transaction, so the history row commits or rolls back together with the
+    // stock movement it describes. Use this whenever an inventory quantity is
+    // also being modified.
+    CreateTx(ctx context.Context, tx *sql.Tx, txn *model.Transaction) (*model.Transaction, error)
 
     // GetByID retrieves single transaction
     GetByID(ctx context.Context, txnID uuid.UUID) (*model.Transaction, error)

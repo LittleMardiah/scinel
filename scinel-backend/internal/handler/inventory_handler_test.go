@@ -79,7 +79,7 @@ func TestInventoryHandler_CreateTransaction(t *testing.T) {
 	}
 
 	t.Run("create in transaction success", func(t *testing.T) {
-		h, invRepo, txnRepo, _, _ := newTestInventoryHandler(t)
+		h, invRepo, txnRepo, _, mockDB := newTestInventoryHandler(t)
 
 		updatedInv := *currentInv
 		updatedInv.Quantity = 60
@@ -97,15 +97,20 @@ func TestInventoryHandler_CreateTransaction(t *testing.T) {
 			CreatedAt:        now,
 		}
 
-		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return(currentInv, nil)
-		invRepo.On("UpdateQuantity", mock.Anything, whID, skuID, int32(10)).Return(&updatedInv, nil)
-		txnRepo.On("Create", mock.Anything, mock.Anything).Return(savedTxn, nil).Run(func(args mock.Arguments) {
-			txn := args.Get(1).(*model.Transaction)
+		// The handler runs lock -> delta -> history insert inside one
+		// database.DB.WithTx call, so sqlmock has to see BEGIN before the
+		// repository mocks and COMMIT once the body returned without error.
+		mockDB.ExpectBegin()
+		invRepo.On("LockForUpdateTx", mock.Anything, mock.Anything, whID, skuID).Return(currentInv, nil)
+		invRepo.On("UpdateQuantityTx", mock.Anything, mock.Anything, whID, skuID, int32(10)).Return(&updatedInv, nil)
+		txnRepo.On("CreateTx", mock.Anything, mock.Anything, mock.Anything).Return(savedTxn, nil).Run(func(args mock.Arguments) {
+			txn := args.Get(2).(*model.Transaction)
 			assert.Equal(t, model.TransactionIn, txn.Type)
 			assert.Equal(t, int32(10), txn.Quantity)
 			assert.Equal(t, int32(50), txn.PreviousQuantity)
 			assert.Equal(t, int32(60), txn.NewQuantity)
 		})
+		mockDB.ExpectCommit()
 		invRepo.On("InvalidateCache", mock.Anything, whID, skuID).Return(nil)
 
 		body := `{"warehouse_id":"` + whID.String() + `","sku_id":"` + skuID.String() + `","type":"in","quantity":10,"reason":"restock"}`
@@ -117,6 +122,7 @@ func TestInventoryHandler_CreateTransaction(t *testing.T) {
 		resp := decodeResponse(t, rr)
 		assert.Equal(t, "Transaction created", resp.Message)
 		time.Sleep(20 * time.Millisecond)
+		assert.NoError(t, mockDB.ExpectationsWereMet())
 		invRepo.AssertExpectations(t)
 		txnRepo.AssertExpectations(t)
 	})
@@ -166,38 +172,49 @@ func TestInventoryHandler_CreateTransaction(t *testing.T) {
 	})
 
 	t.Run("insufficient stock for out transaction", func(t *testing.T) {
-		h, invRepo, _, _, _ := newTestInventoryHandler(t)
+		h, invRepo, _, _, mockDB := newTestInventoryHandler(t)
 		lowInv := *currentInv
 		lowInv.Quantity = 5
-		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return(&lowInv, nil)
+		mockDB.ExpectBegin()
+		invRepo.On("LockForUpdateTx", mock.Anything, mock.Anything, whID, skuID).Return(&lowInv, nil)
+		// The stock check fails inside the transaction body, so WithTx
+		// aborts instead of committing.
+		mockDB.ExpectRollback()
 
 		body := `{"warehouse_id":"` + whID.String() + `","sku_id":"` + skuID.String() + `","type":"out","quantity":10,"reason":"sale"}`
 		req := requestWithUser(http.MethodPost, "/api/v1/transactions", body, user)
 		rr := httptest.NewRecorder()
 		h.CreateTransaction(rr, req)
 		assert.Equal(t, http.StatusConflict, rr.Code)
+		assert.NoError(t, mockDB.ExpectationsWereMet())
 	})
 
 	t.Run("inventory not found", func(t *testing.T) {
-		h, invRepo, _, _, _ := newTestInventoryHandler(t)
-		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return((*model.Inventory)(nil), nil)
+		h, invRepo, _, _, mockDB := newTestInventoryHandler(t)
+		mockDB.ExpectBegin()
+		invRepo.On("LockForUpdateTx", mock.Anything, mock.Anything, whID, skuID).Return((*model.Inventory)(nil), nil)
+		mockDB.ExpectRollback()
 
 		body := `{"warehouse_id":"` + whID.String() + `","sku_id":"` + skuID.String() + `","type":"in","quantity":10,"reason":"x"}`
 		req := requestWithUser(http.MethodPost, "/api/v1/transactions", body, user)
 		rr := httptest.NewRecorder()
 		h.CreateTransaction(rr, req)
 		assert.Equal(t, http.StatusNotFound, rr.Code)
+		assert.NoError(t, mockDB.ExpectationsWereMet())
 	})
 
 	t.Run("get current stock error", func(t *testing.T) {
-		h, invRepo, _, _, _ := newTestInventoryHandler(t)
-		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return((*model.Inventory)(nil), errors.New("db error"))
+		h, invRepo, _, _, mockDB := newTestInventoryHandler(t)
+		mockDB.ExpectBegin()
+		invRepo.On("LockForUpdateTx", mock.Anything, mock.Anything, whID, skuID).Return((*model.Inventory)(nil), errors.New("db error"))
+		mockDB.ExpectRollback()
 
 		body := `{"warehouse_id":"` + whID.String() + `","sku_id":"` + skuID.String() + `","type":"in","quantity":10,"reason":"x"}`
 		req := requestWithUser(http.MethodPost, "/api/v1/transactions", body, user)
 		rr := httptest.NewRecorder()
 		h.CreateTransaction(rr, req)
 		assert.Equal(t, http.StatusInternalServerError, rr.Code)
+		assert.NoError(t, mockDB.ExpectationsWereMet())
 	})
 
 	t.Run("sku code lookup via db", func(t *testing.T) {
@@ -223,9 +240,11 @@ func TestInventoryHandler_CreateTransaction(t *testing.T) {
 			WithArgs("SKU-001").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(skuID.String()))
 
-		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return(currentInv, nil)
-		invRepo.On("UpdateQuantity", mock.Anything, whID, skuID, int32(10)).Return(&updatedInv, nil)
-		txnRepo.On("Create", mock.Anything, mock.Anything).Return(savedTxn, nil)
+		mockDB.ExpectBegin()
+		invRepo.On("LockForUpdateTx", mock.Anything, mock.Anything, whID, skuID).Return(currentInv, nil)
+		invRepo.On("UpdateQuantityTx", mock.Anything, mock.Anything, whID, skuID, int32(10)).Return(&updatedInv, nil)
+		txnRepo.On("CreateTx", mock.Anything, mock.Anything, mock.Anything).Return(savedTxn, nil)
+		mockDB.ExpectCommit()
 		invRepo.On("InvalidateCache", mock.Anything, whID, skuID).Return(nil)
 
 		body := `{"warehouse_id":"` + whID.String() + `","sku_code":"SKU-001","type":"in","quantity":10,"reason":"restock"}`
@@ -248,17 +267,17 @@ func TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection(t *testing.
 	skuID := uuid.New()
 	user := &middleware.UserInfo{UserID: uuid.New().String(), Email: "u@example.com", Role: "viewer"}
 
-	newHandler := func(t *testing.T, detector *stubAnomalyDetector) (*InventoryHandler, *MockInventoryRepository, *MockTransactionRepository) {
+	newHandler := func(t *testing.T, detector *stubAnomalyDetector) (*InventoryHandler, *MockInventoryRepository, *MockTransactionRepository, sqlmock.Sqlmock) {
 		t.Helper()
 		invRepo := new(MockInventoryRepository)
 		txnRepo := new(MockTransactionRepository)
-		sqlDB, _, err := sqlmock.New()
+		sqlDB, mockDB, err := sqlmock.New()
 		require.NoError(t, err)
 		t.Cleanup(func() { sqlDB.Close() })
-		return NewInventoryHandler(invRepo, txnRepo, &database.DB{DB: sqlDB}, detector, &forecastTestLogger{}), invRepo, txnRepo
+		return NewInventoryHandler(invRepo, txnRepo, &database.DB{DB: sqlDB}, detector, &forecastTestLogger{}), invRepo, txnRepo, mockDB
 	}
 
-	expectSuccess := func(t *testing.T, invRepo *MockInventoryRepository, txnRepo *MockTransactionRepository) {
+	expectSuccess := func(t *testing.T, mockDB sqlmock.Sqlmock, invRepo *MockInventoryRepository, txnRepo *MockTransactionRepository) {
 		t.Helper()
 		currentInv := &model.Inventory{
 			ID:          uuid.New(),
@@ -281,9 +300,14 @@ func TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection(t *testing.
 			Reason:           "sale",
 			CreatedAt:        time.Now().UTC(),
 		}
-		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return(currentInv, nil)
-		invRepo.On("UpdateQuantity", mock.Anything, whID, skuID, int32(-10)).Return(&updatedInv, nil)
-		txnRepo.On("Create", mock.Anything, mock.Anything).Return(savedTxn, nil)
+		// Same transaction contract as CreateTransaction: the row lock, the
+		// negative delta and the history insert are committed together, and
+		// only then is the async detection triggered.
+		mockDB.ExpectBegin()
+		invRepo.On("LockForUpdateTx", mock.Anything, mock.Anything, whID, skuID).Return(currentInv, nil)
+		invRepo.On("UpdateQuantityTx", mock.Anything, mock.Anything, whID, skuID, int32(-10)).Return(&updatedInv, nil)
+		txnRepo.On("CreateTx", mock.Anything, mock.Anything, mock.Anything).Return(savedTxn, nil)
+		mockDB.ExpectCommit()
 		invRepo.On("InvalidateCache", mock.Anything, whID, skuID).Return(nil)
 	}
 
@@ -291,8 +315,8 @@ func TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection(t *testing.
 
 	t.Run("detection triggered with warehouse and sku of the transaction", func(t *testing.T) {
 		detector := newStubAnomalyDetector()
-		h, invRepo, txnRepo := newHandler(t, detector)
-		expectSuccess(t, invRepo, txnRepo)
+		h, invRepo, txnRepo, mockDB := newHandler(t, detector)
+		expectSuccess(t, mockDB, invRepo, txnRepo)
 
 		rr := httptest.NewRecorder()
 		h.CreateTransaction(rr, requestWithUser(http.MethodPost, "/api/v1/transactions", body, user))
@@ -305,13 +329,14 @@ func TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection(t *testing.
 		case <-time.After(2 * time.Second):
 			t.Fatal("anomaly detection was not triggered after successful transaction")
 		}
+		assert.NoError(t, mockDB.ExpectationsWereMet())
 	})
 
 	t.Run("detection error does not change the response", func(t *testing.T) {
 		detector := newStubAnomalyDetector()
 		detector.err = errors.New("detection failed")
-		h, invRepo, txnRepo := newHandler(t, detector)
-		expectSuccess(t, invRepo, txnRepo)
+		h, invRepo, txnRepo, mockDB := newHandler(t, detector)
+		expectSuccess(t, mockDB, invRepo, txnRepo)
 
 		rr := httptest.NewRecorder()
 		h.CreateTransaction(rr, requestWithUser(http.MethodPost, "/api/v1/transactions", body, user))
@@ -323,12 +348,15 @@ func TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection(t *testing.
 		case <-time.After(2 * time.Second):
 			t.Fatal("anomaly detection was not triggered after successful transaction")
 		}
+		assert.NoError(t, mockDB.ExpectationsWereMet())
 	})
 
 	t.Run("detection not triggered when transaction is rejected", func(t *testing.T) {
 		detector := newStubAnomalyDetector()
-		h, invRepo, _ := newHandler(t, detector)
-		invRepo.On("GetBySKU", mock.Anything, whID, skuID).Return((*model.Inventory)(nil), nil)
+		h, invRepo, _, mockDB := newHandler(t, detector)
+		mockDB.ExpectBegin()
+		invRepo.On("LockForUpdateTx", mock.Anything, mock.Anything, whID, skuID).Return((*model.Inventory)(nil), nil)
+		mockDB.ExpectRollback()
 
 		rr := httptest.NewRecorder()
 		h.CreateTransaction(rr, requestWithUser(http.MethodPost, "/api/v1/transactions", body, user))
@@ -339,6 +367,7 @@ func TestInventoryHandler_CreateTransaction_TriggersAnomalyDetection(t *testing.
 			t.Fatalf("unexpected anomaly detection call: %v", got)
 		case <-time.After(100 * time.Millisecond):
 		}
+		assert.NoError(t, mockDB.ExpectationsWereMet())
 	})
 }
 
