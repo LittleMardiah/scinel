@@ -2493,3 +2493,92 @@ NOTES / TEMUAN:
 
 STATUS: V1-V6 PASS. TD-N24 -> FIXED (2026-09-26, W4.1). Menunggu User
   commit via PowerShell.
+
+--------------------------------------------------------------------------------
+2026-09-26 - W5a: FIX TD-N5 rate limiter mount order (chaintukar Auth/RateLimit)
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 - tukar urutan chain di cmd/api/main.go dari
+     CORS -> SecurityHeaders -> RateLimit -> Auth -> Mux menjadi
+     CORS -> SecurityHeaders -> Auth -> RateLimit -> Mux.
+  2. V1-V6 verifikasi.
+  3. AUTO LOG - TECHNICAL_DEBT.txt (TD-N5 -> FIXED, TD-N25 baru), LOGBOOK.txt.
+  Scope: scinel-backend/cmd/api/main.go + 2 dokumen log. rate_limit.go dan
+  rate_limit_test.go TIDAK berubah (tidak perlu).
+
+CEK DULU (hipotesis diverifikasi, bukan diterima):
+  - Chain SEBELUM fix (main.go:144-151, bukan 132 seperti klaim brief; 132 =
+    `adminOnly := middleware.RBACMiddleware("admin")`):
+      CORS(145) -> SecurityHeaders(146) -> rateLimiter.Apply(147)
+      -> AuthMiddleware(jwtManager, redisClient)(148) -> mux.
+  - getLimitKey (rate_limit.go:104-122) prioritas: X-API-Key header (:106)
+    -> r.Context().Value(UserContextKey).(*UserInfo) = "user:"+UserID (:112)
+    -> fallback "ip:"+RemoteAddr|X-Forwarded-For (:117-121).
+  - AuthMiddleware (auth.go:44) mengisi context di auth.go:119 dengan
+    context.WithValue(r.Context(), UserContextKey, userInfo), lalu meneruskan
+    di auth.go:122. Key = UserContextKey = ContextKey("user") (auth.go:22) -
+    PERSIS sama dengan yang dibaca rate_limit.go:112.
+  - Middleware Go = outermost jalan lebih dulu, jadi saat rateLimiter.Apply
+    eksekusi, context masih kosong -> type assertion `ok=false` -> jatuh ke
+    fallback IP. Rate limit per-user tidak pernah dipakai. TD-N5 TERBUKTI.
+  - Public paths (auth.go:53-62) TIDAK terdampak: auth.go:67 meneruskan ke
+    next, dan setelah tukar next = rate limiter, jadi register/login/refresh/
+    health/readiness/liveness tetap kena rate limit (key IP). Tidak perlu
+    dual-mount.
+  - X-API-Key (rate_limit.go:106) tidak bergantung context -> tetap berfungsi.
+
+PERUBAHAN (1 file, 2 baris efektif):
+  cmd/api/main.go:144-151
+  -   rateLimiter.Apply(
+  -       middleware.AuthMiddleware(jwtManager, redisClient)(mux),
+  -   ),
+  +   middleware.AuthMiddleware(jwtManager, redisClient)(
+  +       rateLimiter.Apply(mux),
+  +   ),
+  Signature NewRateLimitMiddleware(redisClient, N), logika getLimitKey,
+  checkLimit, publicPaths, dan file rate_limit_test.go tidak disentuh.
+  Indentasi 4-space dipertahankan (R6 - gaya blok existing).
+
+HASIL / VERIFIKASI:
+  V1 grep -n "RateLimit|AuthMiddleware" cmd/api/main.go
+     -> 144 NewRateLimitMiddleware, 147 AuthMiddleware (Auth kini di LUAR,
+        rate limiter di dalam) = chain baru terlihat.
+  V2 go build ./...                        -> exit 0
+  V3 go test ./...                         -> 13 paket ok, 0 FAIL
+  V4 go test -race ./internal/middleware/... -count=1
+     -> "ok ... internal/middleware 1.115s"
+  V5 go vet ./...                          -> exit 0, tanpa temuan
+  V6 git status --short                    -> scinel-backend/cmd/api/main.go +
+     docs/TECHNICAL_DEBT.txt + docs/LOGBOOK.txt (2 dokumen log). Sisanya
+     (docs/TEST.txt, hapus scinel-backend/docs/*.md, file untracked) sudah
+     dirty SEBELUM W5a - bukan hasil kerja ini.
+
+NOTES / TEMUAN:
+  - [OVERRIDE-1] Brief: "main.go: ~132 mount rateLimiter.Apply(AuthMiddleware
+    (jwtManager)(mux))" dan "pastikan signature RateLimitMiddleware(redisClient,
+    N) tidak berubah". Kenyataan (bukti file:line): mount ada di main.go:144-151
+    dan signature-nya NewRateLimitMiddleware(redisClient, 1000) -> 1000 =
+    requestsPerSec, 1 argumen (main.go:144). Fix: tidak ada yang perlu
+    "dipastikan" ulang secara kode, signature tidak disentuh sama sekali.
+    Alignment: R2 (kode = source of truth).
+  - [RISIKO] Request ke protected path yang ditolak Auth (401 di auth.go:75,
+    82, 101, 109) kini keluar SEBELUM menyentuh rate limiter; sebelumnya ikut
+    terhitung pada key IP. Dampak kecil & arahnya aman (limit 1000 req/detik,
+    respons 401 tidak memakai Redis/Postgres).Dicatat sebagai TD-N25 (LOW,
+    trade-off sadar) - TIDAK diperbaiki di W5a karena opsi (b) limiter dobel
+    dan (c) limiter khusus request tanpa Authorization menyentuh desain
+    middleware di luar scope (R8 + §11.4.3) -> LAPOR ke User/DeepSeek.
+  - [PERLU VERIFIKASI] Belum ada test komposisi yang memeriksa middleware
+    chain di cmd/api (main_test.go hanya placeholder skip). Wiring terbukti
+    benar secara statis (V1) + unit test middleware hijau, tapi belum diuji
+    HTTP live dengan bearer token nyata - butuh Redis + Postgres hidup.
+  - [PERLU VERIFIKASI] Di balik reverse proxy, X-Forwarded-For dipakai mentah
+    sebagai key (rate_limit.go:118-119) tanpa mengambil hop pertama; semua
+    klien di balik satu proxy akan berbagi key. Di luar scope W5a, tidak
+    diubah -> layak TD tersendiri.
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test, tidak
+    ada --no-verify, tidak ada test yang dihapus/di-disable. Tidak commit /
+    tidak push.
+
+STATUS: V1-V6 PASS. TD-N5 -> FIXED (2026-09-26, W5a). TD-N25 baru OPEN.
+  Menunggu User commit via PowerShell.

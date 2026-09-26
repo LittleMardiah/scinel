@@ -144,8 +144,8 @@ func main() {
     rateLimiter := middleware.NewRateLimitMiddleware(redisClient, 1000)
     handlerWithMiddleware := middleware.CORSMiddleware(
         middleware.SecurityHeaders(
-            rateLimiter.Apply(
-                middleware.AuthMiddleware(jwtManager, redisClient)(mux),
+            middleware.AuthMiddleware(jwtManager, redisClient)(
+                rateLimiter.Apply(mux),
             ),
         ),
     )

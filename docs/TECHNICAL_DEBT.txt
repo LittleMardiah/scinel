@@ -1,10 +1,10 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4, W4-continue, W4.1)
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX
-Total entri register: 29 (8 entri lama + 21 TD-N baru)
-TD baru tercatat: 21
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4, W4-continue, W4.1, W5a)
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER
+Total entri register: 30 (8 entri lama + 22 TD-N baru)
+TD baru tercatat: 22
 Item lama diverifikasi STALE/PARTIAL: 8
 Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
 Item FIXED di W3.1: TD-N17 (Suspense /reset-password)
@@ -16,6 +16,9 @@ Item FIXED di W4.1: TD-N24 (testify vs sql.Tx data race di -race) — mocks_test
              mencatat txHandle{} (value type), bukan *sql.Tx mentah; real *sql.Tx
              ditangkap txRecorder dan dicek SameTx(). time.Sleep sebagai "fix"
              dihapus, diganti wait sebetu-betunya pada channel detector.
+Item FIXED di W5a: TD-N5 (rate limiter mount order — Auth dipindah ke dalam,
+             rate limiter tetap satu lapis dan kini bisa baca UserContextKey)
+Item BARU di W5a: TD-N25 (401 Auth keluar sebelum rate limiter — trade-off sadar)
 Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23, W4-continue ke 24.
 ================================================================================
 
@@ -307,16 +310,40 @@ Referensi cepat:
 
 [TD-N5] Rate limiter dijalankan sebelum Auth
   Severity : MEDIUM
-  Status   : OPEN (current worktree; unit key tests pass; route composition belum diuji)
+  Status   : FIXED (2026-09-26 — W5a; composition test end-to-end belum ada)
   Deskripsi: Rate limiter berada di luar AuthMiddleware. Karena user context baru
              dibuat Auth, bearer request jatuh ke key IP; key X-API-Key tetap
              berfungsi dan bukan semua user keying mati.
-  Bukti    : scinel-backend/cmd/api/main.go:132-139;
+  Bukti    : scinel-backend/cmd/api/main.go:144-151 (chain SEBELUM fix);
              scinel-backend/internal/middleware/rate_limit.go:34-49,103-121;
              scinel-backend/internal/middleware/auth.go:65-81;
-             `go test -mod=readonly ./internal/middleware -run 'RateLimit|AuthMiddleware' -count=1` -> PASS;
-             `git diff -- scinel-backend/cmd/api/main.go` menunjukkan wiring
-             rate limiter hanya ada di worktree.
+             `go test -mod=readonly ./internal/middleware -run 'RateLimit|AuthMiddleware' -count=1` -> PASS.
+             KOREKSI 2026-09-26 (W5a): line 132-139 pada catatan lama menunjuk
+             blok adminOnly/api-keys, bukan wiring rate limiter; wiring sudah
+             ada di HEAD (bukan hanya worktree).
+  Akar     : chain lama `CORS -> SecurityHeaders -> rateLimiter.Apply ->
+             AuthMiddleware(jwtManager, redisClient) -> mux` (main.go:144-151)
+             membuat body rate limiter jalan lebih dulu. getLimitKey
+             (rate_limit.go:112) membaca `ContextValue(UserContextKey)`, sedangkan
+             AuthMiddleware baru mengisinya di auth.go:119; saat itu context
+             masih kosong -> type assertion gagal -> fallback
+             `ip:` (rate_limit.go:117-121). Rate limit per-user tidak pernah
+             dipakai.
+  Perbaikan: tukar dua lapisan di cmd/api/main.go:144-151 menjadi
+             `CORS -> SecurityHeaders -> AuthMiddleware -> rateLimiter.Apply(mux)`.
+             Rate limiter tetap satu lapis, tetap setelah Auth; publicPaths di
+             auth.go:53-70 tidak dihapus sehingga register/login/refresh/health/
+             readiness/liveness tetap melewati Auth dan(next = rate limiter)
+             tetap kena rate limit dengan fallback IP. Signature
+             NewRateLimitMiddleware(redisClient, N) dan logika getLimitKey/
+             checkLimit tidak diubah; tidak ada test yang perlu adjust.
+  Bukti 2026-09-26: `go build ./...` PASS; `go test ./...` PASS (13 paket);
+             `go test -race ./internal/middleware/... -count=1` PASS;
+             `go vet ./...` PASS.
+  Catatan : request ke protected path yang ditolak Auth dengan 401 kini keluar
+             sebelum menyentuh rate limiter (sebelumnya ikut terlimit IP).
+             Dampak kecil (limit 1000 req/detik, rejection 401 tidak memakai
+             Redis), dicatat di TD-N25 — TIDAK diperbaiki di W5a (R8).
 
 [TD-N6] Forecast batch dan webhook retry tidak terjadwal
   Severity : MEDIUM
@@ -816,4 +843,29 @@ Referensi cepat:
                assertion, sedangkan sanitize argumen + wait yang benar
                menutup race tanpa mengurangi satu pun assertion.
 
+
+[TD-N25] 401 di Auth keluar sebelum rate limiter
+  Severity : LOW (keputusan sadar trade-off, bukan bug — ditemukan saat W5a 2026-09-26)
+  Status   : OPEN (sengaja tidak diperbaiki di W5a — R8 scope control)
+  Deskripsi: Setelah TD-N5 ditutup, chain menjadi
+             CORS -> SecurityHeaders -> AuthMiddleware -> rateLimiter -> mux.
+             Protected path yang ditolak Auth (missing/invalid/revoked token)
+             sudah selesai di auth.go:75,82,101,109 dan tidak pernah sampai ke
+             rate limiter. Sebelumnya (chain terbalik) request 401 ikut
+             terhitung pada key IP. Public path tidak terpengaruh: auth.go:67
+             meneruskan ke next, dan next kini adalah rate limiter.
+  Dampak  : kecil dan arahnya aman. Batas 1000 req/detik per key (main.go:144)
+             jauh di atas beban abuse realistis pada endpoint yang selalu
+             membalas 401 tanpa menyentuh Redis/Postgres; jalur DB tetap di
+             bawah rate limiter. Yang hilang hanya penghitung throttle pada
+             respons 401.
+  Bukti    : scinel-backend/cmd/api/main.go:144-151;
+             scinel-backend/internal/middleware/auth.go:65-70 (public skip),
+             auth.go:75,82,101,109 (4 jalur 401 sebelum next).
+  Opsi     : (a) biarkan — status quo W5a; (b) rate limiter dobel (pre-Auth
+             untuk public + post-Auth untuk protected) — menambah satu lapis
+             handler dan satu handler lagi yang perlu dites; (c) limiter
+             khusus untuk request tanpa Authorization header.
+             OpenCode TIDAK memilih: (b) dan (c) menyentuh desain middleware
+             di luar SCOPE W5a (R8 + §11.4.3) -> LAPOR ke User/DeepSeek.
 
