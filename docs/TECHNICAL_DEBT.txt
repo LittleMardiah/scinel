@@ -1,10 +1,10 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4, W4-continue, W4.1, W5a)
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER
-Total entri register: 30 (8 entri lama + 22 TD-N baru)
-TD baru tercatat: 22
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b)
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER
+Total entri register: 32 (8 entri lama + 24 TD-N baru)
+TD baru tercatat: 24
 Item lama diverifikasi STALE/PARTIAL: 8
 Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
 Item FIXED di W3.1: TD-N17 (Suspense /reset-password)
@@ -19,7 +19,11 @@ Item FIXED di W4.1: TD-N24 (testify vs sql.Tx data race di -race) — mocks_test
 Item FIXED di W5a: TD-N5 (rate limiter mount order — Auth dipindah ke dalam,
              rate limiter tetap satu lapis dan kini bisa baca UserContextKey)
 Item BARU di W5a: TD-N25 (401 Auth keluar sebelum rate limiter — trade-off sadar)
-Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23, W4-continue ke 24.
+Item FIXED di W5b: TD-N6 (forecast batch terjadwal harian 02:00 UTC), TD-N13
+             (webhook worker poll 30s) — keduanya lewat internal/scheduler.
+Item BARU di W5b: TD-N26 (XFF mentah jadi key rate limit di belakang proxy),
+             TD-N27 (cmd/api/main_test.go placeholder, tanpa komposisi test)
+Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23, W4-continue ke 24, W5a ke 25, W5b ke 26-27.
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -347,15 +351,45 @@ Referensi cepat:
 
 [TD-N6] Forecast batch dan webhook retry tidak terjadwal
   Severity : MEDIUM
-  Status   : OPEN
+  Status   : FIXED (2026-09-26 — W5b)
   Deskripsi: Method batch dan retry/dead-letter ada, tetapi tidak ada scheduler
              atau call site aktif; endpoint generate hanya sleep lalu 202.
   Bukti    : scinel-backend/internal/service/forecast_service.go:54-90;
              scinel-backend/internal/service/webhook_service.go:108-137;
              scinel-backend/internal/handler/forecast_handler.go:127-145;
-             scinel-backend/cmd/api/main.go:78-86;
-             `git grep` hanya menemukan definisi GenerateForecastBatch dan
-             ProcessDeliveries.
+             scinel-backend/cmd/api/main.go:78-86.
+             [KOREKSI FAKTA W5b] Evidence lama "git grep hanya menemukan
+             definisi GenerateForecastBatch dan ProcessDeliveries" TIDAK
+             akurat untuk GenerateForecastBatch: sudah ada call site HTTP di
+             internal/handler/forecast_handler.go:153 (dipanggil dari
+             POST /api/v1/forecasts/generate). Yang benar hilang adalah
+             pemanggilan BERJADWAL — tidak ada ticker/cron di repo
+             (`grep -rn "time.Ticker|time.NewTicker|cron" internal/ cmd/`
+             -> 0 hasil). ProcessDeliveries memang 0 call site (lihat
+             TD-N13).
+  Perbaikan: package internal/scheduler (native Go, tanpa dependensi baru)
+             menjalankan kedua method sebagai job. New(log) + Start(ctx)
+             menyalakan satu goroutine per job dengan timer yang bisa di-reset
+             (initial delay lalu tick tetap), dan recover() per eksekusi
+             sehingga job yang panic tidak menjatuhkan server.
+               - scinel-backend/internal/scheduler/scheduler.go (Job, Scheduler,
+                 New, Register, Start, Stop, Jobs, NextDailyAt)
+               - scinel-backend/cmd/api/main.go:168-187 mendaftarkan
+                 "forecast-batch" (Interval 24h, InitialDelay NextDailyAt(2)
+                 -> daily 02:00 UTC, Run di :175) dan "webhook-worker"
+                 (Interval 30s, InitialDelay 5s, Run di :185).
+             INITIAL DELAY, bukan langsung jalan: daily 02:00 UTC pakai
+             NextDailyAt(2) sehingga proses yang start jam 15:00 tidak memicu
+             batch saat itu juga.
+  Verifikasi: `go build ./...` exit 0; `go test ./...` 13 paket ok (18 test
+             scheduler baru); `go test -race ./internal/scheduler/... -count=5`
+             -> ok tanpa DATA RACE; `go vet ./...` exit 0.
+  Catatan: go.mod/go.sum tidak berubah (nol dependensi baru). Backoff
+           eksponensial 1s/2s/4s/... sudah ada di kode
+           (webhook_service.go:257-266 calculateRetryTime, cap 3600s, floor
+           sub.RetryInterval) dan TIDAK disentuh — job ini hanya menyediakan
+           cadence poll. Jumlah percobaan bukan konstanta 5 melainkan
+           sub.MaxRetries per subscription (webhook_service.go:220).
 
 [TD-N7] .gitignore memiliki encoding campuran dan aturan docs/ tidak berlaku
   Severity : MEDIUM
@@ -446,7 +480,7 @@ Referensi cepat:
 
 [TD-N13] WebhookPublisher.ProcessDeliveries tidak pernah dipanggil
   Severity : HIGH
-  Status   : OPEN (ditemukan saat wiring W2b/W2c 2026-09-25)
+  Status   : FIXED (2026-09-26 — W5b; ditemukan saat wiring W2b/W2c 2026-09-25)
   Deskripsi: PublishAsync hanya mengantre delivery ke tabel webhooks
              (status pending). Pengiriman HTTP, retry exponential backoff, dan
              dead-letter queue berjalan di ProcessDeliveries, tetapi tidak ada
@@ -454,11 +488,26 @@ Referensi cepat:
              goroutine). Akibatnya delivery menumpuk sebagai pending dan
              webhook "terkirim" secara logika tetapi tidak pernah sampai ke
              subscriber.
-  Bukti    : `grep -rn "ProcessDeliveries" --include=*.go .` -> hanya
-             scinel-backend/internal/service/webhook_service.go:108 (komentar)
-             dan :110 (definisi method); tidak ada call site.
-             Antrian dibuat di webhook_service.go:92 (CreateDelivery) dan
-             dikirim di :146-190 (attemptDelivery).
+  Bukti    : (SEBELUM FIX) `grep -rn "ProcessDeliveries" --include=*.go .` ->
+             hanya scinel-backend/internal/service/webhook_service.go:133
+             (komentar) dan :135 (definisi method); tidak ada call site.
+             Antrian dibuat di webhook_service.go:102 (CreateDelivery) dan
+             dikirim di :167-215 (attemptDelivery).
+  Perbaikan: ProcessDeliveries didaftarkan sebagai job "webhook-worker"
+             (Interval 30s, InitialDelay 5s) di
+             scinel-backend/cmd/api/main.go:181-186 lewat
+             scinel-backend/internal/scheduler. Backoff/dead-letter tetap
+             milik webhook_service.go — job hanya memanggilnya.
+  Verifikasi: `grep -rn "ProcessDeliveries" --include=*.go .` -> kini punya
+             call site di cmd/api/main.go:185; `go test -race
+             ./internal/scheduler/... -count=5` -> ok tanpa DATA RACE.
+  Sisa yang jujur: penjadwalan dijamin per instance. Pada deployment
+             multi-replica, poll 30s dari tiap instance bisa mengirim delivery
+             yang sama dua kali karena belum ada claim/lock baris
+             (GetPendingDeliveries hanya membaca, tidak menandai "sedang
+             diproses"). Aman selama backend dijalankan sebagai satu instance;
+             penanganan multi-replica belum dikerjakan dan di luar scope
+             W5b (R8).
 
 [TD-N14] CreateTransaction tidak atomik (tidak ada transaksi DB)
   Severity : MEDIUM
@@ -869,3 +918,61 @@ Referensi cepat:
              OpenCode TIDAK memilih: (b) dan (c) menyentuh desain middleware
              di luar SCOPE W5a (R8 + §11.4.3) -> LAPOR ke User/DeepSeek.
 
+[TD-N26] X-Forwarded-For mentah dipakai sebagai key rate limit
+  Severity : MEDIUM (baru — ditemukan saat W5b 2026-09-26, di luar scope W5b)
+  Status   : OPEN
+  Deskripsi: getLimitKey memakai nilai X-Forwarded-For apa adanya sebagai key
+             rate limit, tanpa mengambil hop pertama. Di belakang reverse
+             proxy/load balancer, semua klien berbagi satu key
+             "ip:<XF-FULL>", sehingga limit per-klien yang dimaksud hilang:
+             satu klien noisy bisa membuat seluruh klien di belakang proxy itu
+             ikut kena 429, dan sebaliknya burst normal bisa salah ter-throttle.
+  Bukti    : scinel-backend/internal/middleware/rate_limit.go:118-119
+               if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+                   ip = xff
+               }
+             return "ip:" + ip   (rate_limit.go:121)
+             Prioritas key: X-API-Key (:106) -> UserContextKey (:112) ->
+             fallback IP/XFF (:117-121). Header XFF bisa berisi rantai
+             "client, proxy1, proxy2" dan tidak diparse.
+  Dampak  : hanya pada deployment di belakang proxy. Setup lokal/dev tanpa
+             proxy tidak mengirim XFF, jadi tidak terpengaruh. Sifatnya
+             Availability, bukan keamanan: shared key justru membuat limit
+             longgar terhadap abuse per-klien, dan klien yang memang
+             bermuatan tinggi bisa ikut me-throttle klien lain.
+  Opsi     : (a) ambil hop pertama XFF (strings.Split(xff, ",")[0]) — hanya
+             benar jika proxy tepercaya; (b) konfigurasi "trusted proxy
+             count" lalu ambil hop ke-N; (c) andalkan UserContextKey/API key
+             dan abaikan XFF. Opsi (a) membuka spoofing bila proxy tidak
+             menimpa header, jadi tidak bisa diputus tanpa keputusan
+             deployment.
+             OpenCode TIDAK memilih dan TIDAK mengubah rate_limit.go: file itu
+             di luar SCOPE W5b (R8 + §11.4.3) -> LAPOR ke User/DeepSeek.
+
+[TD-N27] cmd/api/main_test.go masih placeholder (tidak ada komposisi test)
+  Severity : LOW (baru — ditemukan saat W5b 2026-09-26)
+  Status   : OPEN
+  Deskripsi: cmd/api/main_test.go hanya berisi TestMainPlaceholder yang
+             t.Skip tanpa assertion, sehingga paket cmd/api "hijau" tanpa
+             menguji apa pun. Konsekuensinya wiring di main.go (chain
+             middleware, registrasi route, interval job scheduler) tidak
+             punya pagar regresi: salah pasang tidak akan ditangkap go test.
+  Bukti    : scinel-backend/cmd/api/main_test.go:5-7
+               func TestMainPlaceholder(t *testing.T) {
+                   t.Skip("main function tested via integration tests")
+               }
+             Pola serupa ada di internal/service: forecast_service_test.go
+             memakai t.Skip tanpa assertion, dan service_test.go hanya
+             `func TestPlaceholder(t *testing.T) {}` yang kosong (lulus tanpa
+             menguji apa pun). Belum diinventarisasi menyeluruh di W5b.
+  Dampak  : rendah sekarang (test integrasi tests/integration masih hidup dan
+             hijau), tetapi keputusan wiring berikutnya bisa lolos tanpa
+             terdeteksi.
+  Catatan: W5b menambah 18 test unit di internal/scheduler yang menutup
+           scheduler-nya, tetapi TIDAK menutup komposisi cmd/api: main() masih
+           hanya bisa diuji manual (butuh Postgres + Redis hidup).
+  Opsi     : (1) ekstrak baris perakit dari main() ke func buildServer(cfg,
+             deps) lalu diuji dengan httptest; (2) tambahkan test yang
+             memanggil main() dengan config uji + port acak; (3) biarkan dan
+             andalkan integration test. Opsi (1) menyentuh struktur main()
+             -> di luar SCOPE W5b (R8) -> LAPOR ke User/DeepSeek.

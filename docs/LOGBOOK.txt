@@ -2582,3 +2582,186 @@ NOTES / TEMUAN:
 
 STATUS: V1-V6 PASS. TD-N5 -> FIXED (2026-09-26, W5a). TD-N25 baru OPEN.
   Menunggu User commit via PowerShell.
+
+2026-09-26 - W5b: Scheduler infra + forecast batch + webhook worker (TD-N6, TD-N13)
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 - internal/scheduler/scheduler.go (BARU): native Go, Job/Scheduler/
+     New/Register/Start/Stop, panic recovery, logging via interface ServiceLogger.
+  2. S2 - job "forecast-batch" harian 02:00 UTC (NextDailyAt(2) sebagai initial
+     delay, bukan langsung jalan).
+  3. S3 - job "webhook-worker" poll 30s, initial delay 5s.
+  4. S4 - wiring + graceful shutdown di cmd/api/main.go.
+  5. S5 - internal/scheduler/scheduler_test.go (BARU).
+  6. V1-V8 verifikasi + AUTO LOG (TECHNICAL_DEBT.txt, LOGBOOK.txt).
+  Scope: 2 file baru di internal/scheduler + cmd/api/main.go + 2 dokumen log.
+  Tidak menambah dependensi (go.mod/go.sum tidak berubah).
+
+CEK DULU (WAJIB, file:line):
+  1. Graceful shutdown di main.go = CHANNEL + CONTEXT, tanpa WaitGroup:
+     - main.go:196 sigChan := make(chan os.Signal, 1)
+     - main.go:197 signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+     - main.go:198 <-sigChan (blokir sampai sinyal)
+     - main.go:201 ctx, cancel := context.WithTimeout(context.Background(),
+       cfg.Server.ShutdownTimeout); server.Shutdown(ctx) di :204
+     - TIDAK ada root context yang di-cancel saat shutdown, dan TIDAK ada
+       WaitGroup. Konsekuensi: tidak ada titik cancel bersama untuk background
+       work, jadi scheduler perlu context sendiri.
+  2. Signature forecast: forecast_service.go:57
+     func (fs *ForecastService) GenerateForecastBatch(ctx context.Context) error
+     -> persis bentuk func(context.Context) error yang dibutuhkan Job.Run.
+  3. Signature webhook: webhook_service.go:135
+     func (wp *WebhookPublisher) ProcessDeliveries(ctx context.Context) error
+     -> sama. Retry exponential backoff sudah ADA di kode (webhook_service.go
+     :257-266 calculateRetryTime: 1<<(attempt-1) detik, floor
+     sub.RetryInterval, cap 3600s; dead-letter di :220 saat AttemptCount >=
+     sub.MaxRetries). Job ini hanya menyediakan cadence poll, logika retry
+     tidak diubah.
+  4. Scheduler existing? grep -rn "time.Ticker|time.NewTicker|cron|Scheduler"
+     internal/ cmd/ -> 1 hasil, dan itu hanya KOMENTAR:
+     forecast_service.go:55 "Purpose: Batch job run daily (e.g. via cron)".
+     Tidak ada scheduler/worker infrastructure sebelumnya (R2).
+
+BASELINE SEBELUM UBAH (R1):
+  go build ./... exit 0 | go vet ./... exit 0 | go test ./... 12 paket ok
+  (cmd/api, config, database, handler, middleware, model, repository, service,
+  util, logger, timeseries, tests/integration).
+
+DESIGN KEPUTUSAN:
+  - Timer yang bisa di-reset (time.NewTimer + Reset), BUKAN time.Ticker.
+    Ticker tidak bisa memberi initial delay tanpa select tambahan, dan
+    time.Sleep dilarang brief. Reset dipakai SETELAH eksekusi, jadi interval
+    diukur antar-awal-run (drift = durasi job), bukan antar-tick.
+  - recover() DI DALAM per-eksekusi (bukan per-goroutine): job yang panic
+    di-log plus stack, lalu jadwalnya LANJUT. Kalau recover di luar, satu
+    panic akan mematikan loop job itu selamanya.
+  - Register() menolak job invalid (name kosong, Run nil, Interval <= 0).
+    Interval <= 0 tanpa guard = hot loop, jadi ditolak, bukan diam-diam jalan.
+  - Start()/Stop() idempotent, dan Stop() memblokir sampai semua goroutine job
+    selesai (wg.Wait) supaya tidak ada goroutine leak.
+  - Job dibatasi ctx: saat ctx di-cancel, error dari job di-log sebagai
+    "Job aborted by shutdown" (Info), bukan "Job failed" (Error), supaya
+    shutdown yang normal tidak tercatat sebagai kegagalan.
+
+VERIFIKASI:
+  V1 ls internal/scheduler/ -> scheduler.go, scheduler_test.go (2 file baru).
+  V2 grep -n "scheduler\." cmd/api/main.go -> 7 match (New :168, Job :171,
+     JobNameForecastBatch :172, NextDailyAt :174, Job :181,
+     JobNameWebhookWorker :182, +1 di komentar :163). Start (:187) dan Stop
+     (:211) dipanggil lewat variabel `jobScheduler`, jadi tidak muncul pada
+     pola "scheduler\.".
+  V3 grep "forecast-batch|webhook-worker" internal/scheduler/ -> 2 match di
+     scheduler.go:41,44 (konstanta JobNameForecastBatch / JobNameWebhookWorker).
+  V4 go build ./...                 -> exit 0
+  V5 go test ./... -count=1         -> 13 paket ok, 0 FAIL (termasuk
+                                      internal/scheduler 0.245s yang baru)
+  V6 go test -race ./internal/scheduler/... -count=1 -> ok, 18/18 PASS, 0
+     DATA RACE. Diulang -count=5 -> ok juga (2.245s).
+  V7 go vet ./...                   -> exit 0, tanpa temuan
+  V8 git status --short             -> M scinel-backend/cmd/api/main.go,
+                                      ?? scinel-backend/internal/scheduler/,
+                                      + dirt yang sudah ada SEBELUM W5b
+                                      (docs/TEST.txt, hapus
+                                      scinel-backend/docs/*.md, beberapa
+                                      untracked) - bukan hasil kerja ini.
+  gofmt: internal/scheduler/ bersih. cmd/api/main.go masih dilaporkan
+  gofmt -l, tetapi itu PRE-EXISTING: gofmt -l pada `git show
+  HEAD:scinel-backend/cmd/api/main.go` juga melaporkannya. Dua hunk yang
+  tersisa (main.go:69-98 dan :143-151) adalah blok 4-spasi dari pekerjaan
+  W2x/W3, di luar scope W5b (R8). Blok yang saya tambahkan tidak disentuh
+  gofmt; satu-satunya perbaikan di region itu adalah menambahkan newline
+  akhir file yang memang hilang di HEAD.
+
+TESTS (18 test, internal/scheduler/scheduler_test.go):
+  - NewSchedulerStartsEmpty, NewSchedulerAcceptsNilLogger
+  - RegisterRejectsInvalidJobs, RegisterClampsNegativeInitialDelay,
+    RegisterAfterStartIsRejected, JobsReturnsDefensiveCopy
+  - StartRunsJobImmediatelyAndOnInterval, InitialDelayDefersFirstRun
+  - JobErrorIsLoggedAndScheduleContinues
+  - PanicIsRecoveredAndOtherJobsSurvive
+  - StopWaitsForJobsAndIsIdempotent, StopWithoutStartIsSafe
+  - ContextCancelStopsAllJobs, LongRunningJobReceivesCancelledContext
+  - NextDailyAtLandsOnRequestedUTCHour (24 jam),
+    NextDailyAtNeverReturnsNonPositiveDelay,
+    NextDailyAtNormalisesOutOfRangeHour
+  - JobNameConstants
+  Semua sinkronisasi pakai channel + select dengan timeout, TIDAK ada
+  time.Sleep sebagai "fix" (pola yang TD-N24 ajarkan). testLogger di-backup
+  mutex karena scheduler meng-log dari banyak goroutine (wajib untuk -race).
+  3 kegagalan awal adalah bug di sisi TEST, bukan di scheduler:
+  (a) testLogger hanya menyimpan msg, jadi field ("boom", nilai panic) tidak
+      terlihat -> logger kini merekam msg + fields;
+  (b) NextDailyAt mengambil "now" sendiri sehingga rekonstruksi before+d
+      meleset sekitar 100ns -> assert diubah ke toleransi 1 detik terhadap
+      kandidat base atau base+1h;
+  (c) jam rollover tengah malam -> kandidat kedua menutupnya.
+
+NOTES / TEMUAN:
+  - [OVERRIDE-1] Brief: "type Job struct { Name string; Interval time.Duration;
+    Run func(context.Context) error }" tanpa InitialDelay, tapi S2/S3
+    sekaligus menuntut "Initial delay: nextDailyAt(2)" dan "delay 5s".
+    Field InitialDelay time.Duration DITAMBAHKAN (field baru, additive,
+    field lama tidak berubah). Tanpa itu, jadwal daily-02:00-UTC tidak
+    mungkin diekspresikan. Alignment: S2/S3 + R2.
+  - [OVERRIDE-2] Brief: "func New() *Scheduler" tapi S1 juga mewajibkan
+    logging "via ServiceLogger interface". Tanpa parameter logger, Start()
+    tidak bisa melakukan logging. Fix: `func New(log Logger) *Scheduler`
+    dengan interface lokal (Info/Error/Warn) yang identik bentuknya dengan
+    service.ServiceLogger (forecast_service.go:18-22) sehingga
+    *logger.Logger (pkg/logger/logger.go:9-11, embed *slog.Logger)
+    memenuhi secara struktural TANPA scheduler mengimpor layer service.
+    `log` boleh nil (log di-drop) agar test tidak wajib punya logger.
+    Alignment: S1 (logging) lebih mengikat daripada bentuk pasti New().
+  - [OVERRIDE-3] Brief menulis helper `nextDailyAt` (lowercase) tetapi
+    main.go ada di package berbeda, jadi WAJIB exported:
+    `scheduler.NextDailyAt`. Alignment: R2 (kode harus bisa dikompilasi dan
+    dipanggil).
+  - [OVERRIDE-4] V3 meminta "forecast-batch|webhook-worker" ada di
+    internal/scheduler/, sementara S2/S3 menaruh Register di main.go - dua
+    syarat yang saling bertentakan. Fix: nama job jadi konstanta exported di
+    scheduler.go:41,44 (sumber tunggal, karena nama ini masuk structured log
+    dan rename diam-diam akan memecahkan log query) lalu dipakai di
+    main.go:172,182. Register tetap di main.go sesuai S2/S3. Interval TIDAK
+    dijadikan konstanta (percobaan pertama) supaya jadwal 24h/30s/5s tetap
+    terbaca di titik wiring dan tidak ada konstanta mati.
+  - [OVERRIDE-5] Evidence lama TD-N6 ("git grep hanya menemukan definisi
+    GenerateForecastBatch dan ProcessDeliveries") TIDAK akurat:
+    GenerateForecastBatch SUDAH punya call site HTTP di
+    internal/handler/forecast_handler.go:153 (POST
+    /api/v1/forecasts/generate). Yang hilang adalah pemanggilan BERJADWAL.
+    TD-N6 tetap FIXED (benar tidak ada ticker/cron di repo), tetapi
+    evidence-nya dikoreksi di register. Alignment: R2 + R3.
+  - [RISIKO] Scheduler berjalan per-instance. Deployment multi-replica akan
+    menjalankan forecast-batch N kali dan poll webhook N kali sekaligus;
+    GetPendingDeliveries hanya membaca status pending tanpa claim/lock baris,
+    sehingga satu delivery bisa terkirim ganda. Aman selama 1 instance
+    (deployment sekarang). Tidak diperbaiki di W5b - butuh skema claim
+    (SELECT ... FOR UPDATE SKIP LOCKED) yang menyentuh repository dan
+    kemungkinan migration, di luar scope (R8 + §11.4.1) -> dicatat di TD-N13.
+  - [RISIKO] Fixed 24h tick untuk forecast-batch aman karena UTC tidak punya
+    DST, jadi tidak ada drift dari 02:00 UTC. Jika zona waktu konfigurasi
+    berubah nanti, NextDailyAt harus dihitung ulang tiap hari (bukan sekali
+    saat Start) - sekarang belum jadi kebutuhan.
+  - [PERLU VERIFIKASI] Wiring scheduler di cmd/api BELUM diuji end-to-end:
+    butuh Postgres + Redis hidup (sama seperti TD-N25). Yang terbukti: 18
+    unit test scheduler hijau dan race-bersih, dan signature kedua Run method
+    cocok dengan Job.Run secara compiler.
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test baru,
+    tidak ada --no-verify, tidak ada time.Sleep di production maupun test
+    code. go.mod & go.sum tidak berubah. Tidak commit / tidak push.
+
+LEARNING CHECKPOINT:
+  - Root cause TD-N6/N13: bukan bug, tapi TIDAK-ADANYA call site - kode fitur
+    lengkap dan teruji, tidak pernah dijalankan. Paling mudah missed kalau
+    hanya menerima laporan "fitur selesai".
+  - Fix yang worked: infrastruktur scheduler kecil (1 file, stdlib saja)
+    plus InitialDelay eksplisit, karena "interval 24h" saja tidak pernah
+    bisa menyatakan "jam 2 pagi UTC".
+  - Lesson: saat menambah service method yang dimaksudkan berjalan di
+    background, cek call site dengan grep di waktu yang sama - bukan saat
+    method selesai ditulis.
+
+STATUS: V1-V8 PASS. TD-N6 -> FIXED (2026-09-26, W5b). TD-N13 -> FIXED
+  (2026-09-26, W5b). TD-N26 (MEDIUM) + TD-N27 (LOW) baru OPEN.
+  Total entri register: 32 (8 entri lama + 24 TD-N baru).
+  Menunggu User commit via PowerShell.

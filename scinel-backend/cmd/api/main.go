@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/LittleMardiah/scinel/internal/handler"
 	"github.com/LittleMardiah/scinel/internal/middleware"
 	"github.com/LittleMardiah/scinel/internal/repository"
+	"github.com/LittleMardiah/scinel/internal/scheduler"
 	"github.com/LittleMardiah/scinel/internal/service"
 	"github.com/LittleMardiah/scinel/internal/util"
 	"github.com/LittleMardiah/scinel/pkg/logger"
@@ -157,6 +159,33 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
+	// Background jobs. workerCtx is cancelled on shutdown so in-flight jobs
+	// observe it; scheduler.Stop() then blocks until every job goroutine has
+	// returned, so no goroutine outlives the process.
+	workerCtx, cancelWorkers := context.WithCancel(context.Background())
+	defer cancelWorkers()
+
+	jobScheduler := scheduler.New(appLogger)
+	// forecast-batch: daily at 02:00 UTC. UTC has no DST, so a fixed 24h tick
+	// starting from NextDailyAt(2) cannot drift away from the target hour.
+	jobScheduler.Register(scheduler.Job{
+		Name:         scheduler.JobNameForecastBatch,
+		Interval:     24 * time.Hour,
+		InitialDelay: scheduler.NextDailyAt(2),
+		Run:          forecastSvc.GenerateForecastBatch,
+	})
+	// webhook-worker: poll pending deliveries. The exponential backoff and
+	// the dead-letter transition already live in ProcessDeliveries; this job
+	// only supplies the poll cadence. The startup delay lets the HTTP
+	// listener come up first.
+	jobScheduler.Register(scheduler.Job{
+		Name:         scheduler.JobNameWebhookWorker,
+		Interval:     30 * time.Second,
+		InitialDelay: 5 * time.Second,
+		Run:          webhookPublisher.ProcessDeliveries,
+	})
+	jobScheduler.Start(workerCtx)
+
 	go func() {
 		appLogger.Info("HTTP server listening", "address", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -176,4 +205,9 @@ func main() {
 		appLogger.Error("Server forced to shutdown", "error", err.Error())
 	}
 	appLogger.Info("Server shutdown complete")
+
+	// Stop accepting new work first, then wait for the job goroutines.
+	cancelWorkers()
+	jobScheduler.Stop()
+	appLogger.Info("Background jobs stopped")
 }
