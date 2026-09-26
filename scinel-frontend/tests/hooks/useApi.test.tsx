@@ -4,7 +4,7 @@ import { apiClient } from "@/lib/api";
 import { describe, it, expect, jest, beforeEach, afterEach } from "@jest/globals";
 
 describe("useApi", () => {
-  let getSpy: jest.SpyInstance;
+  let getSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     // Spy pada apiClient.get dan mock implementasi

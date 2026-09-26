@@ -4,13 +4,13 @@ import { describe, it, expect, jest } from "@jest/globals";
 
 describe("LoginForm", () => {
   it("should render email and password fields", () => {
-    render(<LoginForm onSubmit={jest.fn()} />);
+    render(<LoginForm onSubmit={jest.fn(async () => {})} />);
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/kata sandi/i)).toBeInTheDocument();
   });
 
   it("should validate email format", async () => {
-    const handleSubmit = jest.fn();
+    const handleSubmit = jest.fn(async () => {});
     render(<LoginForm onSubmit={handleSubmit} />);
     const emailInput = screen.getByLabelText(/email/i);
     const submitBtn = screen.getByRole("button", { name: /masuk/i });
@@ -26,7 +26,7 @@ describe("LoginForm", () => {
   });
 
   it("should submit with valid credentials", async () => {
-    const handleSubmit = jest.fn();
+    const handleSubmit = jest.fn<(email: string, password: string) => Promise<void>>(async () => {});
     render(<LoginForm onSubmit={handleSubmit} />);
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "test@example.com" } });
     fireEvent.change(screen.getByLabelText(/kata sandi/i), { target: { value: "password123" } });
@@ -35,7 +35,7 @@ describe("LoginForm", () => {
   });
 
   it("should show error message from prop", () => {
-    render(<LoginForm onSubmit={jest.fn()} error="Login failed" />);
+    render(<LoginForm onSubmit={jest.fn(async () => {})} error="Login failed" />);
     expect(screen.getByText("Login failed")).toBeInTheDocument();
   });
 });

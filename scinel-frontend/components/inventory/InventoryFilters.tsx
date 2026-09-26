@@ -6,11 +6,12 @@ import { Button } from '@/components/common/Button';
 import { X } from 'lucide-react';
 
 interface InventoryFiltersProps {
-  warehouseId: string;
-  status: string;
-  onWarehouseChange: (value: string) => void;
-  onStatusChange: (value: string) => void;
-  onReset: () => void;
+  warehouseId?: string;
+  status?: string;
+  onWarehouseChange?: (value: string) => void;
+  onStatusChange?: (value: string) => void;
+  onReset?: () => void;
+  onFilterChange?: (filters: { warehouseId: string; status: string }) => void;
 }
 
 const warehouses = [
@@ -28,13 +29,24 @@ const statusOptions = [
 ];
 
 export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
-  warehouseId,
-  status,
+  warehouseId = '',
+  status = '',
   onWarehouseChange,
   onStatusChange,
   onReset,
+  onFilterChange,
 }) => {
   const hasFilters = warehouseId !== '' || status !== '';
+
+  const handleWarehouseChange = (value: string) => {
+    onWarehouseChange?.(value);
+    onFilterChange?.({ warehouseId: value, status });
+  };
+
+  const handleStatusChange = (value: string) => {
+    onStatusChange?.(value);
+    onFilterChange?.({ warehouseId, status: value });
+  };
 
   return (
     <div className="flex flex-wrap items-end gap-3">
@@ -45,7 +57,7 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
         <Select
           options={warehouses}
           value={warehouseId}
-          onChange={(value) => onWarehouseChange(value)}
+          onChange={handleWarehouseChange}
           placeholder="Pilih gudang"
         />
       </div>
@@ -57,7 +69,7 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
         <Select
           options={statusOptions}
           value={status}
-          onChange={(value) => onStatusChange(value)}
+          onChange={handleStatusChange}
           placeholder="Pilih status"
         />
       </div>

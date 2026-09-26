@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe.configure({ timeout: 120000 }); // 120 detik global
 
 test.describe('ScIntel E2E Flows', () => {
-  const BASE_URL = 'http://localhost:3001';
+  const BASE_URL = 'http://localhost:3000';
   const API_URL = 'http://localhost:8080/api/v1';
 
   test.beforeEach(async ({ page }) => {

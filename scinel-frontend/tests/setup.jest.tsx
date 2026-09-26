@@ -1,8 +1,12 @@
 import "@testing-library/jest-dom";
+import "@testing-library/jest-dom/jest-globals";
 import { jest } from "@jest/globals";
 
 // ===== MOCK GLOBAL NEXT/NAVIGATION =====
 jest.mock("next/navigation", () => ({
+  redirect: jest.fn(),
+  permanentRedirect: jest.fn(),
+  notFound: jest.fn(),
   useRouter: jest.fn(() => ({
     push: jest.fn(),
     replace: jest.fn(),
@@ -32,7 +36,7 @@ jest.mock("next-themes", () => ({
 // ===== MOCK WINDOW.MATCHMEDIA =====
 Object.defineProperty(window, "matchMedia", {
   writable: true,
-  value: jest.fn().mockImplementation((query) => ({
+  value: jest.fn().mockImplementation((query: unknown) => ({
     matches: false,
     media: query,
     onchange: null,
@@ -45,11 +49,11 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 // ===== MOCK INTERSECTIONOBSERVER =====
-global.IntersectionObserver = jest.fn().mockImplementation(() => ({
+global.IntersectionObserver = jest.fn(() => ({
   observe: jest.fn(),
   unobserve: jest.fn(),
   disconnect: jest.fn(),
-}));
+})) as unknown as typeof IntersectionObserver;
 
 // ===== MOCK RECHARTS =====
 jest.mock("recharts", () => {

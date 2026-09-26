@@ -4,14 +4,14 @@ import { describe, it, expect, jest } from "@jest/globals";
 
 jest.mock("@/lib/api", () => ({
   apiClient: {
-    get: jest.fn().mockResolvedValue({
+    get: jest.fn(async () => ({
       data: {
         data: {
           total_sku: 100,
           health: { status: "online" },
         },
       },
-    }),
+    })),
   },
 }));
 

@@ -4,7 +4,7 @@ import { describe, it, expect } from "@jest/globals";
 
 describe("ResolutionModal", () => {
   it("should render", () => {
-    render(<ResolutionModal isOpen={true} onClose={() => {}} onResolve={() => {}} />);
+    render(<ResolutionModal isOpen={true} onClose={() => {}} onResolve={async () => {}} anomalyId="anomaly-1" />);
     expect(document.body).toBeInTheDocument();
   });
 });

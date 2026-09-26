@@ -9,6 +9,7 @@ interface TransactionFormProps {
   onSubmit: (data: TransactionData) => Promise<void>;
   isLoading?: boolean;
   error?: string | null;
+  onCancel?: () => void;
 }
 
 interface TransactionData {
@@ -19,7 +20,7 @@ interface TransactionData {
   reason: string; // ← required
 }
 
-export function TransactionForm({ onSubmit, isLoading, error }: TransactionFormProps) {
+export function TransactionForm({ onSubmit, isLoading, error, onCancel }: TransactionFormProps) {
   const [formData, setFormData] = useState<TransactionData>({
     sku_code: '',
     type: 'in',
@@ -141,9 +142,16 @@ export function TransactionForm({ onSubmit, isLoading, error }: TransactionFormP
         />
       </div>
 
-      <Button type="submit" isLoading={isLoading} className="w-full">
-        Buat Transaksi
-      </Button>
+      <div className="flex gap-2">
+        {onCancel && (
+          <Button type="button" variant="secondary" onClick={onCancel} className="flex-1">
+            Batal
+          </Button>
+        )}
+        <Button type="submit" isLoading={isLoading} className="flex-1">
+          Buat Transaksi
+        </Button>
+      </div>
     </form>
   );
 }

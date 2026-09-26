@@ -3,8 +3,8 @@ import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
 import { describe, it, expect } from "@jest/globals";
 
 const mockTransactions = [
-  { id: "1", sku: "SKU-001", type: "in", quantity: 10, created_at: "2026-07-29" },
-  { id: "2", sku: "SKU-002", type: "out", quantity: 5, created_at: "2026-07-28" },
+  { id: "1", sku: "SKU-001", type: "in" as const, quantity: 10, created_at: "2026-07-29" },
+  { id: "2", sku: "SKU-002", type: "out" as const, quantity: 5, created_at: "2026-07-28" },
 ];
 
 describe("RecentTransactions", () => {

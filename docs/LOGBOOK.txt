@@ -1807,3 +1807,33 @@ PENDING:
   - Commit oleh user via PowerShell (R10).
   - GenerateForecasts belum memanggil GenerateForecastBatch; ProcessDeliveries
     belum ada worker (TD-N13).
+
+--------------------------------------------------------------------------------
+2026-09-26 07:40 — W3: FRONTEND TYPECHECK, JEST BASELINE, RESUME STATE
+--------------------------------------------------------------------------------
+TASK:
+  1. CEK DULU — resume state (git, jest.config, @jest/globals, tsc error count 133 -> 106 non-test Cluster A).
+  2. S1 — Cluster A: pnpm add -D @jest/globals@30.4.1 (69 @jest/globals errors gone).
+  3. S2 — Cluster B: e.target on string (8) → fix 4 files, pakai value langsung.
+  4. S4 — Cluster D/E: Select.tsx Omit onChange + Button.tsx export interface.
+  5. S3 — Cluster C: prop mismatch (25) — implementasi props untuk KPIGrid, InventoryTable, AccuracyMetrics, AlgorithmComparison, ForecastTable, AnomalyChart, AnomalyCard, TransactionForm (onCancel), InventoryFilters (optional + onFilterChange), WebhookManager (controlled props).
+  6. S5 — WebhookManager options missing label (6).
+  7. S6 — lib/api.ts:69 null on expires_at.
+  8. V1 — tsc --noEmit exit 0 (awal 106 non-test -> 0).
+  9. S7 — Jest fixes: app/page test uses redirect mock; dashboard mock hoisted correctly (@jest/globals + setup); RegisterForm test align to DOM; ResolutionModal props; RecentTransactions types; e2e BASE_URL 3001->3000.
+  10. V3 — npx jest: 71 suites, 113 tests PASS.
+  11. V4/V5 — grep localhost:3001 0; playwright --list 5 tests.
+  12. AUTO LOG — TECHNICAL_DEBT.txt: TD-N4 FIXED (2026-09-26), TD-N16 ADDED (FIXED), TD-N17 OPEN (pre-existing /reset-password Suspense), A.1 [RESOLVED].
+
+VERIFIKASI (bukti):
+  - npx tsc --noEmit -> exit 0
+  - npx jest --silent -> 71 passed, 113 passed, 0 failed
+  - grep -c "localhost:3001" tests/e2e/scinel-e2e.spec.ts -> 0
+  - npx playwright test --list -> 5 tests in 1 file
+  - node -e "require.resolve('@jest/globals')" -> exit 0
+
+NOTES:
+  - Build (next build) gagal pada file pre-existing /app/(auth)/reset-password/page.tsx (useSearchParams tanpa Suspense). Tidak disentuh (di luar scope W3). Dicatat sebagai TD-N17 (OPEN, blocker V2).
+  - Semua perubahan di-scope: pages/components/tests/lib/jest.config/package.json sesuai tugas.
+
+SELESAI (user commit via PowerShell).

@@ -1,11 +1,12 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25
-Total entri register: 23 (8 entri lama + 15 TD-N baru)
-TD baru tercatat: 15
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3)
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26
+Total entri register: 25 (8 entri lama + 17 TD-N baru)
+TD baru tercatat: 17
 Item lama diverifikasi STALE/PARTIAL: 8
+Item FIXED di W3: TD-N4, TD-N16, A.1 (baseURL Playwright)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -15,6 +16,11 @@ A. TEMUAN SCAN & FIX INFRASTRUKTUR E2E (2026-09-03)
    - File: scinel-frontend/playwright.config.ts
    - baseURL sekarang: http://localhost:3000
    [STALE 2026-09-25: kode != docs, cek audit log] Recheck: config:11 memakai 3000, tetapi tests/e2e/scinel-e2e.spec.ts:6 masih hardcode BASE_URL 3001.
+   [RESOLVED 2026-09-26 — W3] Hardcode di tests/e2e/scinel-e2e.spec.ts:6
+   diubah 3001 -> 3000, sehingga spec dan config konsisten. Bukti:
+   `grep -c "localhost:3001" tests/e2e/scinel-e2e.spec.ts` -> 0;
+   `npx playwright test --list` -> Total: 5 tests in 1 file.
+   Catatan: 5 test baru di-list (belum dieksekusi; butuh backend + frontend hidup).
 
 2. [FIXED] Backend .env.local memakai port non-standar.
    - DATABASE_URL: 5434 -> 5432
@@ -231,13 +237,18 @@ Referensi cepat:
 
 [TD-N4] Frontend gagal typecheck pada handler Select
   Severity : HIGH
-  Status   : OPEN (tsc exit 2; next build fresh tidak dijalankan)
+  Status   : FIXED (2026-09-26 — W3; tsc exit 0)
   Deskripsi: Select menerima callback string, tetapi anomalies page memperlakukan
              callback sebagai React event dan mengakses e.target.value.
   Bukti    : scinel-frontend/components/common/Select.tsx:6-17;
              scinel-frontend/app/(protected)/anomalies/page.tsx:190,201;
              `pnpm exec tsc --noEmit --incremental false --pretty false` ->
              TS2339 pada 190:54 dan 201:56, TSC_EXIT=2.
+  Perbaikan : SelectProps sekarang `extends Omit<SelectHTMLAttributes, 'onChange'>`
+             dengan onChange value-based; 4 halaman (anomalies, forecast,
+             forecast/accuracy, inventory/transactions) memakai `value` langsung.
+  Bukti 2026-09-26: `npx tsc --noEmit` -> exit 0;
+             `npx jest` -> 71 suite / 113 test PASS.
 
 [TD-N5] Rate limiter dijalankan sebelum Auth
   Severity : MEDIUM
@@ -369,3 +380,44 @@ Referensi cepat:
              anomaly_service.go:76-80 (early return bila data < 5 titik);
              anomaly_service.go:83-84 (Z-score/IQR atas daily "out" vs
              inv.Quantity).
+
+[TD-N16] DevDependency @jest/globals hilang sehingga 69 test file gagal typecheck
+  Severity : HIGH
+  Status   : FIXED (2026-09-26 — W3)
+  Deskripsi: Seluruh file test meng-import { describe, it, expect, jest } dari
+             '@jest/globals', tetapi paket itu tidak pernah masuk package.json.
+             Layout pnpm (strict, tanpa hoisting) membuat modul tidak bisa
+             di-resolve, sehingga 69 error TS2307 muncul sekaligus.
+  Bukti    : `node -e "require.resolve('@jest/globals')"` -> MODULE_NOT_FOUND
+             (exit 1); `npx tsc --noEmit | grep -c "@jest/globals"` -> 69.
+  Perbaikan: `pnpm add -D @jest/globals@30.4.1` (package.json + pnpm-lock.yaml).
+  Bukti 2026-09-26: `node -e "require.resolve('@jest/globals')"` -> exit 0;
+             `npx tsc --noEmit` -> exit 0; `npx jest` -> 71 suite/113 test PASS.
+  Catatan : memasang paket ini membongkar cluster baru — matcher
+             @testing-library/jest-dom tidak ter-typing pada expect dari
+             '@jest/globals'. Diperbaiki dengan satu baris
+             `import "@testing-library/jest-dom/jest-globals";` di
+             tests/setup.jest.tsx (95 error TS2339 hilang).
+
+[TD-N17] next build gagal prerender /reset-password (useSearchParams tanpa Suspense)
+  Severity : HIGH
+  Status   : OPEN (di luar scope W3; blocker V2, lihat catatan scoping di bawah)
+  Deskripsi: Halaman /reset-password memanggil useSearchParams() di level atas
+             client component tanpa dibungkus Suspense boundary. Next.js 14
+             menolak saat static generation, sehingga `next build` exit 1 dan
+             V2 (build exit 0) tidak bisa dicapai tanpa menyentuh file di luar
+             scope W3.
+  Bukti    : scinel-frontend/app/(auth)/reset-password/page.tsx:10-14
+             (const searchParams = useSearchParams(); const token =
+             searchParams.get('token'); tanpa <Suspense>);
+             `npx next build` -> "useSearchParams() should be wrapped in a
+             suspense boundary at page /reset-password"; "Error occurred
+             prerendering page /reset-password"; "Export encountered errors on
+             following paths: /(auth)/reset-password/page" -> EXIT=1.
+  Provenance: `git status --short "app/(auth)"` -> kosong (tidak disentuh W3);
+             build di HEAD tanpa fix W3 berhenti lebih awal pada TS2339, jadi
+             error ini pre-existing dan baru terungkap setelah tsc hijau.
+  Opsi fix (di luar scope W3, perlu otorisasi):
+             (a) bungkus isi halaman dengan <Suspense> di page yang sama; atau
+             (b) tambahkan `export const dynamic = 'force-dynamic';`; atau
+             (c) next.config.js — tapi file itu tidak ada di scope W3.

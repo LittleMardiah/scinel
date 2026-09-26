@@ -4,7 +4,7 @@ import { describe, it, expect, jest } from '@jest/globals';
 
 describe('TransactionForm', () => {
   it('should render all form fields', () => {
-    render(<TransactionForm onSubmit={jest.fn()} />);
+    render(<TransactionForm onSubmit={jest.fn(async () => {})} />);
     expect(screen.getByLabelText(/kode sku/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/tipe transaksi/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/kuantitas/i)).toBeInTheDocument();
@@ -12,7 +12,7 @@ describe('TransactionForm', () => {
   });
 
   it('should validate required fields', async () => {
-    const handleSubmit = jest.fn();
+    const handleSubmit = jest.fn(async () => {});
     render(<TransactionForm onSubmit={handleSubmit} />);
     fireEvent.click(screen.getByRole('button', { name: /buat transaksi/i }));
     const errors = await screen.findAllByText(/diperlukan/i);

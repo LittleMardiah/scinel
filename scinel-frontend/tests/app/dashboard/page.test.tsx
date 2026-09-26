@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import DashboardPage from "@/app/(protected)/dashboard/page";
-import { describe, it, expect, jest } from "@jest/globals";
+import { describe, it, expect } from "@jest/globals";
 
 // Mock useDashboardData dengan data health yang lengkap
 jest.mock("@/hooks/useDashboardData", () => ({

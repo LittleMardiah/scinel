@@ -61,7 +61,7 @@ apiClient.interceptors.response.use(
 // ============================================================
 export interface ApiKey {
   id: string; key_prefix: string; name: string; permissions: string[];
-  is_active: boolean; last_used_at?: string; expires_at?: string; created_at: string;
+  is_active: boolean; last_used_at?: string; expires_at?: string | null; created_at: string;
 }
 
 const mockApiKeys: ApiKey[] = [

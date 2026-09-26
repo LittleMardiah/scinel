@@ -111,7 +111,7 @@ export default function ForecastAccuracyPage() {
               <Select
                 options={warehouseOptions}
                 value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
+                onChange={(value) => setWarehouseId(value)}
                 placeholder="Pilih gudang"
               />
             </div>
@@ -122,7 +122,7 @@ export default function ForecastAccuracyPage() {
               <Select
                 options={algorithmOptions}
                 value={algorithm}
-                onChange={(e) => setAlgorithm(e.target.value)}
+                onChange={(value) => setAlgorithm(value)}
                 placeholder="Pilih algoritma"
               />
             </div>

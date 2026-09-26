@@ -187,7 +187,7 @@ export default function AnomaliesPage() {
                 <Select
                   options={statusOptions}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
+                  onChange={(value) => setStatusFilter(value)}
                   placeholder="Pilih status"
                 />
               </div>
@@ -198,7 +198,7 @@ export default function AnomaliesPage() {
                 <Select
                   options={severityOptions}
                   value={severityFilter}
-                  onChange={(e) => setSeverityFilter(e.target.value)}
+                  onChange={(value) => setSeverityFilter(value)}
                   placeholder="Pilih severity"
                 />
               </div>

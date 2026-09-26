@@ -150,7 +150,7 @@ export default function InventoryPage() {
             onSort={handleSort}
             sortKey={sortKey}
             sortOrder={sortOrder}
-            onRowClick={(id) => router.push(`/inventory/${id}`)}
+            onRowClick={(id: string) => router.push(`/inventory/${id}`)}
           />
         </CardContent>
       </Card>

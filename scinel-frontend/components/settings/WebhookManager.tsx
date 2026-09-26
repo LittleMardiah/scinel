@@ -18,13 +18,23 @@ const Switch = ({ checked, onChange }: { checked: boolean; onChange: () => void 
   </button>
 );
 
-export function WebhookManager() {
+interface WebhookManagerProps {
+  webhooks?: WebhookSubscription[];
+  onUpdate?: () => void;
+}
+
+export function WebhookManager({ webhooks: webhooksProp, onUpdate }: WebhookManagerProps = {}) {
   const [webhooks, setWebhooks] = useState<WebhookSubscription[]>([]); const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [formEvent, setFormEvent] = useState('inventory.changed'); const [formUrl, setFormUrl] = useState(''); const [formRetries, setFormRetries] = useState('5'); const [formInterval, setFormInterval] = useState('60');
   const eventOptions = [{ value: 'inventory.changed', label: '📦 Inventory Berubah' }, { value: 'forecast.generated', label: '📊 Forecast Baru' }, { value: 'anomaly.detected', label: '🚨 Anomali' }];
 
-  const loadWebhooks = async () => { setLoading(true); try { const data = await getWebhooks(); setWebhooks(data); } catch {} finally { setLoading(false); } };
+  const list = webhooksProp ?? webhooks;
+
+  const loadWebhooks = async () => {
+    if (webhooksProp) { onUpdate?.(); return; }
+    setLoading(true); try { const data = await getWebhooks(); setWebhooks(data); } catch {} finally { setLoading(false); }
+  };
   useEffect(() => { loadWebhooks(); }, []);
 
   const handleCreate = async () => {
@@ -45,14 +55,14 @@ export function WebhookManager() {
         <Button onClick={() => setModalOpen(true)}>Subscribe</Button>
       </CardHeader>
       <CardContent>
-        {loading ? <p>Loading...</p> : webhooks.length === 0 ? <p className="text-gray-500">Belum ada webhook.</p> : (
+        {loading ? <p>Loading...</p> : list.length === 0 ? <p className="text-gray-500">Belum ada webhook.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-gray-600 dark:text-gray-400 border-b">
                 <tr><th className="text-left py-2">Event</th><th className="text-left py-2">URL</th><th className="text-left py-2">Status</th><th className="text-left py-2">Dibuat</th><th className="text-left py-2">Aksi</th></tr>
               </thead>
               <tbody>
-                {webhooks.map((wh) => (
+                {list.map((wh) => (
                   <tr key={wh.id} className="border-t border-gray-100 dark:border-gray-800">
                     <td className="py-2">{wh.event_type}</td>
                     <td className="py-2 text-xs truncate max-w-[150px]">{wh.webhook_url}</td>
@@ -73,8 +83,8 @@ export function WebhookManager() {
             <div><label className="block text-sm font-medium mb-1">Event</label><Select value={formEvent} onChange={(v) => setFormEvent(v as string)} options={eventOptions} /></div>
             <div><label className="block text-sm font-medium mb-1">URL (https://)</label><Input value={formUrl} onChange={(e) => setFormUrl(e.target.value)} placeholder="https://example.com/webhook" /></div>
             <div className="grid grid-cols-2 gap-2">
-              <div><label className="block text-sm font-medium mb-1">Retry</label><Select value={formRetries} onChange={(v) => setFormRetries(v as string)} options={[{ value: '3' }, { value: '5' }, { value: '10' }]} /></div>
-              <div><label className="block text-sm font-medium mb-1">Interval (s)</label><Select value={formInterval} onChange={(v) => setFormInterval(v as string)} options={[{ value: '30' }, { value: '60' }, { value: '120' }]} /></div>
+              <div><label className="block text-sm font-medium mb-1">Retry</label><Select value={formRetries} onChange={(v) => setFormRetries(v as string)} options={[{ value: '3', label: '3' }, { value: '5', label: '5' }, { value: '10', label: '10' }]} /></div>
+              <div><label className="block text-sm font-medium mb-1">Interval (s)</label><Select value={formInterval} onChange={(v) => setFormInterval(v as string)} options={[{ value: '30', label: '30' }, { value: '60', label: '60' }, { value: '120', label: '120' }]} /></div>
             </div>
             <div className="flex justify-end gap-2 pt-2"><Button variant="ghost" onClick={() => setModalOpen(false)}>Batal</Button><Button onClick={handleCreate}>Subscribe</Button></div>
           </div>

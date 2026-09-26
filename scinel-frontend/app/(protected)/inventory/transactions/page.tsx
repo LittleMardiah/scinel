@@ -183,7 +183,7 @@ export default function TransactionsPage() {
                     { value: 'wh-bandung-001', label: 'Bandung Branch' },
                   ]}
                   value={warehouseId}
-                  onChange={(e) => setWarehouseId(e.target.value)}
+                  onChange={(value) => setWarehouseId(value)}
                 />
               </div>
               <div>
@@ -197,7 +197,7 @@ export default function TransactionsPage() {
                     { value: 'out', label: 'Keluar' },
                   ]}
                   value={type}
-                  onChange={(e) => setType(e.target.value)}
+                  onChange={(value) => setType(value)}
                 />
               </div>
               <div>

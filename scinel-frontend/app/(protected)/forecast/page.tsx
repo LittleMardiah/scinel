@@ -129,7 +129,7 @@ export default function ForecastPage() {
               <Select
                 options={warehouseOptions}
                 value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
+                onChange={(value) => setWarehouseId(value)}
                 placeholder="Pilih gudang"
               />
             </div>
@@ -140,7 +140,7 @@ export default function ForecastPage() {
               <Select
                 options={skuOptions}
                 value={skuId}
-                onChange={(e) => setSkuId(e.target.value)}
+                onChange={(value) => setSkuId(value)}
                 placeholder="Pilih SKU"
               />
             </div>
