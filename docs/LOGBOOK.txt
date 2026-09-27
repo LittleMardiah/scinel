@@ -2765,3 +2765,141 @@ STATUS: V1-V8 PASS. TD-N6 -> FIXED (2026-09-26, W5b). TD-N13 -> FIXED
   (2026-09-26, W5b). TD-N26 (MEDIUM) + TD-N27 (LOW) baru OPEN.
   Total entri register: 32 (8 entri lama + 24 TD-N baru).
   Menunggu User commit via PowerShell.
+
+2026-09-27 - W6: Repo hygiene cleanup (.gitignore encoding, LICENSE, SECURITY, CI root, docs tracking)
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 - .gitignore dibangun ulang dari nol sebagai ASCII murni (TD-N7).
+  2. S2 - scinel-backend/SECURITY.md dibersihkan dari wrapper PowerShell (TD-N8).
+  3. S3 - LICENSE dibuat di root + scinel-backend/LICENSE.md dibersihkan.
+  4. S4 - .github/workflows/ci.yml dibuat di root (CI di subdir tidak jalan).
+  5. S5 - scinel-backend/docs/ di-untrack dari index (3 file).
+  6. V1-V9 verifikasi + AUTO LOG (TECHNICAL_DEBT.txt, LOGBOOK.txt).
+  Scope: repo hygiene saja. TIDAK ada kode produksi (Go/TSX) yang disentuh,
+  TIDAK ada file dihapus dari disk, TIDAK ada commit/push.
+
+CEK DULU (WAJIB, file:line) - 3 dari 7 cek membongkar premis task:
+  1. `file .gitignore` -> "data". NUL bytes ada di TENGAH file, offset 0x147-0x158
+     (desimal 327-344): `64 00 6f 00 63 00 73 00 2f 00 0d 00 0a 00` = "docs/"
+     UTF-16LE. EKOR file (xxd offset 0x250-0x27b) bersih, tidak ada NUL di akhir.
+     Jadi mix encoding, bukan whole-file UTF-16.
+  2. `cat -A scinel-backend/SECURITY.md | head -5` -> baris 1 = `@"^M` (wrapper
+     PowerShell here-string), baris 46 = `"@ | Out-File -FilePath SECURITY.md`.
+     File: UTF-8 CRLF, 1738 byte.
+  3. `ls -la LICENSE LICENSE.md scinel-backend/LICENSE scinel-backend/LICENSE.md`
+     -> root LICENSE TIDAK ADA; yang ada hanya scinel-backend/LICENSE (1219 byte)
+     dan scinel-backend/LICENSE.md (1141 byte).
+  4. `ls -la .github/workflows/` -> tidak ada. `ls -la
+     scinel-backend/.github/workflows/` -> ci.yml 1792 byte, mtime Jul 20 20:20.
+  5. `git ls-files scinel-backend/docs/ docs/TEST.txt` -> docs/TEST.txt tracked;
+     scinel-backend/docs/{API.md,DATABASE.md,SETUP.md} tracked.
+  6. `grep -an "docs/" .gitignore` -> KOSONG (huruf "docs/" ada tapi dipisah NUL).
+  7. `git status --short` -> scinel-backend/docs/ sudah D (deleted) di working
+     tree padahal masih tracked; docs/TEST.txt punya 423/423 diff.
+
+PERBAIKAN:
+  S1 (.gitignore) - Backup ke .gitignore.bak.corrupt (md5 dicocokkan dengan
+     file korup: fc785099caaa4af25be4a5c7b8f12e0d). Rebuild 707 byte ASCII,
+     LF, tanpa BOM. Plus SATU baris `*.bak*` di luar spec (lihat DEVIASI).
+     TD-N7 -> FIXED: `git check-ignore -v --no-index docs/API.md` kini
+     mengembalikan `.gitignore:44:docs/ docs/API.md` (rc=0) - rule docs/
+     akhirnya berlaku, persis symptom yang didokumentasikan di TD-N7.
+  S2 (SECURITY.md) - Baris 1 `@"` dan baris 46 Out-File dihapus, CRLF -> LF,
+     escape `\`` di baris 42 dipulihkan jadi backtick biasa. 1738 -> 1633 byte.
+     Paritas: `diff <(git show HEAD:... | tr -d '\r' | sed -n '2,45p') <baru>`
+     -> hanya 1 baris beda (escape backtick), jadi tidak ada konten yang hilang.
+  S3 (LICENSE) - LICENSE root dibuat (1070 byte, MIT © 2026 M. Arif Aulia),
+     byte-identik dengan LICENSE.md yang sudah dibersihkan
+     (md5 4dd73c45b129f7066f73e02894528f9d). README.md:157 "MIT - lihat
+     [LICENSE](LICENSE)" sekarang link-nya hidup. scinel-backend/LICENSE
+     (golang-migrate) TIDAK disentuh, md5 f8673851... tetap.
+  S4 (CI root) - .github/workflows/ci.yml dibuat (1890 byte) dari salinan
+     backend, dengan `defaults.run.working-directory: scinel-backend`,
+     go-version 1.21 -> 1.25.0 (R2: go.mod:3 = source of truth),
+     `cache-dependency-path: scinel-backend/go.sum` (go.sum tidak ada di root),
+     path Codecov -> ./scinel-backend/coverage.out. yaml.safe_load OK.
+     File backend SENGAJA dibiarkan utuh (md5 ed65c160... tetap).
+  S5 (docs) - `git rm --cached` 3 file scinel-backend/docs/ (index saja, file
+     sudah tidak ada di disk sebelum W6 dan TIDAK dihapus oleh W6).
+     docs/TEST.txt TIDAK di-untrack (lihat DEVIASI).
+
+DEVIASI DARI SPESIFIKASI TASK (semua berbasis bukti, semua dilaporkan):
+  1. TD-N18 / TD-N19 tidak ada di register. TECHNICAL_DEBT.txt:26 (sebelum edit)
+     menyatakan eksplisit "TD-N18/N19/N20 tidak pernah dipakai". Penomoran
+     melompat dari TD-N17 (W3.1) ke TD-N21 (W4). Jadi entri TD yang sebenarnya
+     untuk kerja .gitignore adalah TD-N7, bukan TD-N18/N19 - keduanya tidak
+     dicatat sebagai FIXED karena tidak pernah ada.
+  2. Spec .gitignore tidak memuat rule `*.bak*`, sehingga V3 ("≥3 match") hanya
+     terpenuhi 2 kali dan rule backup jadi melemah. Dibuktikan: tanpa `*.bak*`,
+     `git check-ignore --no-index a.bak1` -> NOT IGNORED, karena `.bak_` dan
+     `.bak[0-9]` hanya cocok untuk dotfile LITERAL (`.bak_`), bukan `a.bak_`.
+     `*.bak*` (1 baris) dikembalikan -> a.bak_/a.bak1/x.bakN/.gitignore.bak.corrupt
+     semua ter-ignore, V3 = 3 match.
+  3. Spec S3 menyebut root LICENSE "konsisten dengan scinel-backend/LICENSE
+     existing" dan menyebut file itu source of truth. Buktinya salah: file itu
+     lisensi golang-migrate (Copyright Matthias Kadenbach / Dale Hui). Yang
+     dipakai adalah lisensi proyek dari LICENSE.md (© 2026 M. Arif Aulia),
+     konsisten dengan README.md:157. Dicatat sebagai TD-N30.
+  4. docs/TEST.txt TIDAK di-untrack. Syarat "redundant dengan TEST.md" tidak
+     terpenuhi: 420/424 baris memang duplikat, tapi section "5. TEST EXECUTION
+     CHECKLIST (Week 9)" + "6. FINAL SUMMARY" memuat hasil eksekusi W5 yang
+     TIDAK ada di TEST.md ("TOTAL: 246 unit test cases, coverage >90%",
+     "TOTAL: 557+ unit test cases + 99+ integration/E2E", "Auth service (36
+     cases) -> PASS", dll). Untrack akan membuang bukti W5. Dicatat TD-N28.
+     Catatan tambahan: 423/423 diff di file itu hanya CRLF -
+     `diff <(git show HEAD:docs/TEST.txt | tr -d '\r') <(tr -d '\r' < file)`
+     -> IDENTICAL, jadi tidak ada kerja W5 yang belum ter-commit di sana.
+  5. go-version di CI root dikoreksi 1.21 -> 1.25.0. scinel-backend/go.mod:3
+     menulis `go 1.25.0`; 1.21 akan gagal build. Ini R2 (kode = source of truth),
+     bukan kolom bebas.
+  6. Emoji 🔒 di SECURITY.md baris 45 dipertahankan (bukan artefak PowerShell).
+  7. Spec .gitignore menulis `scinel-backend/.out` dan `scinel-backend/.html` —
+     itu NAMA LITERAL, bukan glob, jadi hanya cocok untuk file yang benar-benar
+     bernama ".out"/".html". File .gitignore lama memakai `scinel-backend/*.out`
+     dan `scinel-backend/*.html` (terbukti di xxd lama offset 0x64 dan 0x7c).
+     Efeknya ketahuan saat V9: 6 artefak coverage (coverage.html,
+     coverage_all.out, coverage_config.out, coverage_database.out,
+     coverage_middleware.out, coverage_timeseries.out) yang tadinya ter-ignore
+     jadi `??` di git status. Kedua baris dikembalikan ke bentuk glob
+     `*.out` / `*.html` (regresi yang MASUK KERJA W6, diperbaiki di W6).
+     Bukti: `git check-ignore -v --no-index scinel-backend/coverage_all.out`
+     -> `.gitignore:21:scinel-backend/*.out`.
+
+RISIKO / CATATAN:
+  - .gitignore sekarang meng-ignore docs/ secara efektif. Semua file docs/ yang
+    SUDAH tracked tetap tracked (gitignore tidak berlaku pada file tracked), jadi
+    tidak ada dokumen yang hilang - tapi file baru di docs/ tidak akan ikut
+    ter-add tanpa `git add -f`. Root README.md, CHANGELOG.md, LICENSE dikecualikan
+    lewat negasi (terverifikasi: ketiganya match `!README.md`/`!CHANGELOG.md`/
+    `!LICENSE`).
+  - ~20 file *.log di root (fix_w*.log, catat_td.log, audit_roadmap_td.log)
+    kini ter-ignore lewat `*.log` - genau seperti yang diminta repo hygiene.
+  - 16 file log *.log TIDAK dihapus dari disk, hanya di-ignore.
+  - scinel-backend/docs/API.md (6536 byte) sudah jadi subset dari docs/API.md
+    root (22351 byte, struktur sama 1-8, semua 282 baris non-kosong backend ada
+    di root) - aman di-untrack. DATABASE.md dan SETUP.md 0 byte. Konten tetap
+    bisa diambil dari `git show HEAD:scinel-backend/docs/<file>`.
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test baru,
+    tidak ada --no-verify/--force, tidak ada commit / tidak ada push.
+    Tidak ada kode produksi (Go/TSX) yang disentuh.
+
+LEARNING CHECKPOINT:
+  - Root cause TD-N7: satu baris "docs/" pernah ditulis UTF-16LE di tengah file
+    ASCII. Git diam-diam mengabaikannya - `git check-ignore` tidak error, hanya
+    tidak match, jadi tidak ada yang alarmed. Palan pengaman yang berguna:
+    `file .gitignore` (harus ASCII/text, BUKAN "data") + NUL byte check.
+  - Root cause TD-N8: PowerShell here-string `@"..."@ | Out-File` yang
+    ditulis ke dalam file lewat tool apa pun akan menyisipkan `@"` dan
+    `"@ | Out-File ...` sebagai TEKS. Pola yang sama ditemukan di 2 file
+    (SECURITY.md:1,46 dan LICENSE.md:1,23) - Meaning scatter grep
+    `@"|Out-File` jadi cek wajib untuk file .md/.txt hasil generate.
+  - Lesson: "redundan" harus dibuktikan, bukan diasumsikan dari ukuran file.
+    TEST.txt 85% duplikat tapi 15% sisanya bukti eksekusi W5 -saat dihapus,
+    yang hilang justru bagian yang paling berharga.
+  - Lesson: CI di subdirectory repo bukan "redundan", tapi MATI. GitHub hanya
+    memindai .github/workflows/ di root.
+
+STATUS: V1-V9 PASS. TD-N7 -> FIXED (2026-09-27, W6). TD-N8 -> FIXED
+  (2026-09-27, W6). TD-N28 (LOW) + TD-N29 (MEDIUM, PARTIAL) + TD-N30 (LOW)
+  baru OPEN. Total entri register: 35 (8 entri lama + 27 TD-N baru).
+  Menunggu User commit via PowerShell.

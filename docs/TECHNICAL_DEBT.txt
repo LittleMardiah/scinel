@@ -1,10 +1,10 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b)
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER
-Total entri register: 32 (8 entri lama + 24 TD-N baru)
-TD baru tercatat: 24
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26, 2026-09-27 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b, W6)
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER + W6 REPO HYGIENE (GITIGNORE ENCODING / LICENSE / SECURITY / CI ROOT)
+Total entri register: 35 (8 entri lama + 27 TD-N baru)
+TD baru tercatat: 27
 Item lama diverifikasi STALE/PARTIAL: 8
 Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
 Item FIXED di W3.1: TD-N17 (Suspense /reset-password)
@@ -23,7 +23,18 @@ Item FIXED di W5b: TD-N6 (forecast batch terjadwal harian 02:00 UTC), TD-N13
              (webhook worker poll 30s) — keduanya lewat internal/scheduler.
 Item BARU di W5b: TD-N26 (XFF mentah jadi key rate limit di belakang proxy),
              TD-N27 (cmd/api/main_test.go placeholder, tanpa komposisi test)
-Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23, W4-continue ke 24, W5a ke 25, W5b ke 26-27.
+Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23,              W4-continue ke 24, W5a ke 25, W5b ke 26-27, W6 ke 28-30.
+Item FIXED di W6: TD-N7 (.gitignore rebuilt ASCII, rule docs/ sekarang berlaku),
+             TD-N8 (SECURITY.md + LICENSE.md dibersihkan dari wrapper PowerShell,
+             root LICENSE dibuat — README.md:157 link jadi hidup).
+Item BARU di W6: TD-N28 (docs/TEST.txt 85% duplikat TEST.md tapi section
+             "TEST EXECUTION CHECKLIST (Week 9)" berisi hasil eksekusi W5 yang
+             tidak ada di TEST.md — tidak di-untrack, perlu keputusan merge),
+             TD-N29 (scinel-backend/.github/workflows/ci.yml masih pin
+             go-version 1.21 sedangkan go.mod butuh 1.25.0; file itu mati
+             karena GitHub Actions hanya jalan di .github/ root),
+             TD-N30 (scinel-backend/LICENSE berisi lisensi golang-migrate tapi
+             menempati slot "LICENSE proyek" — harus rename LICENSE.golang-migrate).
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -393,7 +404,7 @@ Referensi cepat:
 
 [TD-N7] .gitignore memiliki encoding campuran dan aturan docs/ tidak berlaku
   Severity : MEDIUM
-  Status   : OPEN (encoding defect terverifikasi; perilaku GitHub tidak diuji langsung)
+  Status   : FIXED (2026-09-27, W6)
   Deskripsi: 333 byte awal ASCII, lalu tail `docs/` tersimpan UTF-16LE tanpa BOM.
              File tidak wholly UTF-16, tetapi malformed mixed encoding membuat
              rule docs/ tidak mengabaikan file untracked di bawah docs/.
@@ -401,10 +412,33 @@ Referensi cepat:
              `64 00 6f 00 63 00 73 00 2f 00 0d 00 0a 00`;
              `git check-ignore -v --no-index docs/API.md` tidak menghasilkan rule;
              `git status` tetap menampilkan `?? docs/API.md`.
+  Perbaikan: .gitignore dibangun ulang dari nol sebagai ASCII murni, LF, tanpa
+             BOM. Backup file korup lama disimpan sebagai .gitignore.bak.corrupt
+             (di-ignore oleh rule `*.bak*`).
+             NUL byte hilang total: `file .gitignore` -> "ASCII text";
+             `LC_ALL=C grep -c -P '\x00' .gitignore` -> 0; 707 byte sebelum dan
+             sesudah `tr -d '\000'` sama-sama 707.
+  Verifikasi: `git check-ignore -v --no-index docs/API.md` ->
+              `.gitignore:44:docs/ docs/API.md` (rc=0, rule BERLAKU);
+              negasi tetap jalan: README.md -> `!README.md`,
+              CHANGELOG.md -> `!CHANGELOG.md`, LICENSE -> `!LICENSE`.
+  Catatan: spec W6 menyertakan isi .gitignore tanpa rule `*.bak*`. Rule itu
+           DITAMBAHKAN kembali (satu baris) karena tanpa `*.bak*` pola
+           `.bak.`/`.bak_`/`.bak[0-9]` hanya cocok untuk dotfile literal
+           (`.bak_`), tidak untuk `a.bak_`/`a.bak1`. Bukti:
+           `git check-ignore -v --no-index a.bak1` -> `.gitignore:33:*.bak*`.
+           Ini juga yang membuat V3 (>=3 match) terpenuhi dan menutup
+           .gitignore.bak.corrupt dari `git status`.
+           Spec juga menulis `scinel-backend/.out` dan `scinel-backend/.html`
+           sebagai nama literal (bukan glob), padahal .gitignore lama memakai
+           `scinel-backend/*.out` / `*.html`. Enam artefak coverage langsung
+           muncul sebagai `??` di `git status`. Kedua baris dikembalikan ke
+           bentuk glob -> `git check-ignore -v --no-index
+           scinel-backend/coverage_all.out` -> `.gitignore:21:scinel-backend/*.out`.
 
 [TD-N8] SECURITY.md, LICENSE.md, dan root LICENSE tidak konsisten
   Severity : MEDIUM
-  Status   : OPEN
+  Status   : FIXED (2026-09-27, W6)
   Deskripsi: Dua dokumen tracked memuat wrapper PowerShell, bukan dokumen Markdown
              bersih. Root LICENSE tidak ada; LICENSE yang ada di backend adalah
              file untracked lisensi golang-migrate.
@@ -412,6 +446,28 @@ Referensi cepat:
              scinel-backend/LICENSE.md:1,23;
              scinel-backend/LICENSE:1-28 (untracked);
              `git ls-tree -r --name-only HEAD` tidak memuat root LICENSE.
+  Perbaikan: (1) scinel-backend/SECURITY.md dibersihkan — baris 1 `@"` dan
+             baris 46 `"@ | Out-File -FilePath SECURITY.md -Encoding utf8`
+             dihapus, CRLF -> LF, dan escape `\`` pada baris 42 dipulihkan
+             menjadi backtick biasa. (2) scinel-backend/LICENSE.md dibersihkan
+             (wrapper `@"` + Out-File dihapus) — TIDAK di-untrack karena isinya
+             bukan duplikat: ini satu-satunya teks lisensi proyek yang memuat
+             "Copyright (c) 2026 M. Arif Aulia". (3) LICENSE dibuat di root
+             dengan teks MIT yang sama, byte-identik dengan LICENSE.md
+             (md5 4dd73c45b129f7066f73e02894528f9d).
+  Verifikasi: `grep -cE '@"|Out-File'` -> 0 di SECURITY.md, LICENSE.md, LICENSE;
+             `ls -la LICENSE` -> 1070 byte, ada di root;
+             paritas isi SECURITY.md vs HEAD (CRLF dinormalisasi) identik
+             kecuali 1 baris (escape backtick).
+  Catatan: spec W6 menyebut root LICENSE "konsisten dengan scinel-backend/LICENSE
+           existing". File itu adalah lisensi golang-migrate (Copyright Matthias
+           Kadenbach / Dale Hui, md5 f86738511a3464eff569480240d68dc5), bukan
+           lisensi proyek.            Yang dipakai adalah lisensi proyek dari LICENSE.md,
+           karena README.md:157 menulis "MIT — lihat LICENSE". File
+           golang-migrate TIDAK disentuh (masih untracked, tetap di backend).
+           Konsekuensi: `scinel-backend/LICENSE` kini duplikat peran dengan
+           LICENSE/LICENSE.md dan sebaiknya jadi LICENSE.golang-migrate — lihat
+           TD-N30.
 
 [TD-N9] Backend .env.example hilang tetapi README merujuk
   Severity : LOW
@@ -976,3 +1032,84 @@ Referensi cepat:
              memanggil main() dengan config uji + port acak; (3) biarkan dan
              andalkan integration test. Opsi (1) menyentuh struktur main()
              -> di luar SCOPE W5b (R8) -> LAPOR ke User/DeepSeek.
+
+[TD-N28] docs/TEST.txt 85% duplikat TEST.md tapi membawa hasil eksekusi W5
+  Severity : LOW (baru — ditemukan saat W6 2026-09-27)
+  Status   : OPEN (kondisional — TIDAK di-untrack di W6, perlu keputusan merge)
+  Deskripsi: docs/TEST.txt (18127 byte, 424 baris) adalah versi plain-text dari
+             docs/TEST.md (60114 byte, 2044 baris). 420 dari 424 baris non-kosong
+             TEST.txt muncul verbatim di TEST.md, jadi ~85% isinya duplikat.
+             Tapi bagian yang TIDAK ada di TEST.md adalah hasil eksekusi W5:
+             section "5. TEST EXECUTION CHECKLIST (Week 9)" dan "6. FINAL SUMMARY"
+             memuat angka hasil nyata ("TOTAL: 246 unit test cases, coverage >90%",
+             "TOTAL: 311 unit test cases, coverage >50%",
+             "TOTAL: 557+ unit test cases + 99+ integration/E2E",
+             "Auth service (36 cases) -> PASS", dan seterusnya).
+             Syarat untrack di W6 ("tracked DAN redundant dengan TEST.md") TIDAK
+             terpenuhi karena data unik itu akan hilang dari tracking.
+  Bukti    : `comm -23 <(sort -u docs/TEST.txt) <(sort -u docs/TEST.md)` ->
+             14+ baris unik, semuanya angka hasil eksekusi W5;
+             `git diff --numstat docs/TEST.txt` -> 423/423 (CRLF saja);
+             `diff <(git show HEAD:docs/TEST.txt | tr -d '\r') <(tr -d '\r' < docs/TEST.txt)`
+             -> IDENTICAL, jadi tidak ada kerja W5 yang belum ter-commit di file ini;
+             header docs/TEST.txt:1-6 "COMPREHENSIVE TEST PLAN - ScIntel
+             Platform v2.0 ... Author: M. Arif Aulia (Based on ROADMAP 1-4)".
+  Dampak  : rendah. File tetap tracked, jadi tidak ada data hilang. Yang tersisa
+             hanya duplikasi ~85% yang membingungkan pembaca (dua test plan).
+  Opsi     : (1) merge section 5-6 dari TEST.txt ke TEST.md lalu untrack TEST.txt
+             (paling bersih, tapi menyentuh isi TEST.md -> perlu approval);
+             (2) rename TEST.txt jadi docs/TEST EXECUTION RESULTS.txt supaya
+             perannya jelas tanpa kehilangan data; (3) biarkan duplikasi.
+             W6 tidak memilih salah satu -> R8 (di luar scope merge dokumen).
+
+[TD-N29] Workflow CI backend tidak pernah jalan + go-version 1.21 vs go.mod 1.25.0
+  Severity : MEDIUM (baru — ditemukan saat W6 2026-09-27)
+  Status   : PARTIAL (workflow root sudah dibuat; file lama dibiarkan sesuai instruksi W6)
+  Deskripsi: GitHub Actions hanya membaca .github/workflows/ di root repo.
+             Scout meletakkan CI di scinel-backend/.github/workflows/ci.yml, jadi
+             pipeline itu TIDAK PERNAH jalan di GitHub sejak 2026-07-20. Selain itu
+             file itu pin go-version '1.21' sedangkan scinel-backend/go.mod:3
+             deklarasikan `go 1.25.0` — kalau someday diaktifkan, setup-go 1.21
+             akan gagal build module itu.
+  Bukti    : `ls -la .github/workflows/` -> tidak ada (sebelum W6);
+             `ls -la scinel-backend/.github/workflows/` -> ci.yml 1792 byte,
+             mtime Jul 20 20:20 (tidak pernah berubah sejak itu);
+             scinel-backend/.github/workflows/ci.yml:45 -> go-version: '1.21';
+             scinel-backend/go.mod:3 -> go 1.25.0.
+  Perbaikan: .github/workflows/ci.yml dibuat di root (1890 byte) — salinan
+             dengan `defaults.run.working-directory: scinel-backend`,
+             go-version dikoreksi ke '1.25.0' (R2: kode = source of truth),
+             setup-go diberi cache-dependency-path: scinel-backend/go.sum karena
+             go.sum tidak ada di root, dan path coverage Codecov diubah ke
+             ./scinel-backend/coverage.out. YAML divalidasi (yaml.safe_load OK).
+             File lama scinel-backend/.github/workflows/ci.yml SENGAJA dibiarkan
+             utuh (md5 ed65c1600e740ef44e2892d627accb80 tidak berubah) sesuai
+             instruksi W6.
+  Catatan: go-version 1.21 di file lama TIDAK ikut dikoreksi karena file itu
+           di luar scope edit W6. Tidak ada kode produksi (Go/TSX) disentuh.
+
+[TD-N30] scinel-backend/LICENSE berisi lisensi golang-migrate, bukan lisensi proyek
+  Severity : LOW (baru — ditemukan saat W6 2026-09-27)
+  Status   : OPEN (diabaikan di W6 — instruksi bilang "biarkan sebagai source of truth")
+  Deskripsi: Setelah W6 ada tiga file lisensi: LICENSE (root, MIT © 2026 M. Arif
+             Aulia), scinel-backend/LICENSE.md (MIT © 2026 M. Arif Aulia, identik
+             dengan root), dan scinel-backend/LICENSE (MIT © 2016 Matthias
+             Kadenbach / © 2018 Dale Hui, yaitu lisensi golang-migrate).
+             File ketiga menempati slot "LICENSE proyek" padahal isinya lisensi
+             dependensi, dan masih untracked (`?? scinel-backend/LICENSE`).
+             Presumsi awal W6 ("scinel-backend/LICENSE = source of truth") salah;
+             buktinya ada di head filenya.
+  Bukti    : head -5 scinel-backend/LICENSE -> "The MIT License (MIT) / Original
+             Work / Copyright (c) 2016 Matthias Kadenbach /
+             https://github.com/mattes/migrate / Modified Work /
+             Copyright (c) 2018 Dale Hui / https://github.com/golang-migrate/migrate";
+             md5sum -> LICENSE & LICENSE.md 4dd73c45b129f7066f73e02894528f9d,
+             scinel-backend/LICENSE f86738511a3464eff569480240d68dc5;
+             `git status --short scinel-backend/LICENSE` -> `??` (untracked).
+  Dampak  : rendah. Tidak ada kode produksi yang tersentuh, tapi tiga file
+             lisensi ini menyesatkan pembaca dan tool otomatis yang mengira
+             LICENSE proyek adalah lisensi golang-migrate.
+  Opsi     : (1) rename menjadi scinel-backend/LICENSE.golang-migrate (atau
+             THIRD_PARTY_NOTICES) sesuai konvensi lisensi dependensi; (2) hapus
+             karena go.mod sudah menunjuk dependensi; (3) biarkan. W6 tidak
+             menyentuh file ini -> R8.

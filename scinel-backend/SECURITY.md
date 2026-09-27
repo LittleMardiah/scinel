@@ -1,4 +1,3 @@
-@"
 # Security Policy
 
 ## Supported Versions
@@ -40,7 +39,6 @@ When a vulnerability is reported and confirmed:
 - **Always use prepared statements** (No raw SQL concatenation)
 - **Validate all inputs** (Use strict type checking and validation functions)
 - **Log all authentication attempts** (Especially failures)
-- **Keep dependencies updated** (Run \`go get -u\` regularly)
+- **Keep dependencies updated** (Run `go get -u` regularly)
 
 **Thank you for helping keep ScIntel secure!** 🔒
-"@ | Out-File -FilePath SECURITY.md -Encoding utf8
