@@ -3082,3 +3082,141 @@ STATUS: V1-V8 PASS. TD-N30 -> FIXED (2026-09-27, W6.1 + W7). TD-N12 ->
   dikoreksi (angka duplikasi terbalik). TD-N31 (LOW) + TD-N32 (MEDIUM) +
   TD-N33 (LOW) baru OPEN. Total entri register: 38 (8 entri lama + 30 TD-N
   baru). Menunggu User commit via PowerShell.
+
+2026-09-27 - W7.1: Hapus scinel-backend/playwright.config.ts orphan (TD-N33)
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 - hapus scinel-backend/playwright.config.ts (TD-N33, Opsi 1) SETELAH
+     verifikasi file benar-benar orphan.
+  2. V1-V4 verifikasi + AUTO LOG (TECHNICAL_DEBT.txt, LOGBOOK.txt).
+  Scope: 1 file .ts di scinel-backend/ + 2 file docs. TIDAK ada kode produksi
+  (Go/TSX) yang disentuh, TIDAK ada commit/push, TIDAK ada rm -rf.
+  W7.1 ini adalah otorisasi yang W7 minta di TD-N33 Opsi (1) ("penghapusan file
+   di luar SCOPE W7 -> R8, mohon otorisasi") — brief W7.1 menjawabnya.
+
+CEK DULU (WAJIB, file:line) - 4 cek wajib + 3 cek tambahan, semua bersih.
+  1. `cat scinel-backend/playwright.config.ts` -> 26 baris, `defineConfig` dari
+     '@playwright/test', testDir './tests/e2e', reporter 'html', timeout global
+     60000, satu project 'chromium'. baseURL `http://localhost:3001` di BARIS 11.
+  2. `grep -rn "playwright" scinel-backend/package.json` -> TIDAK ADA output.
+     Ditelusuri sampai akar: `cat scinel-backend/package.json` -> FILE TIDAK ADA
+     SAMA SEKALI. Backend ini Go murni (go.mod/go.sum, cmd/, internal/, pkg/),
+     nol dependensi npm, jadi `@playwright/test` mustahil terpasang di sini.
+     (Brief hanya menanyakan "apakah backend punya script playwright" — jawaban
+     sebenarnya lebih kuat: backend tidak punya package.json sama sekali.)
+  3. `ls scinel-backend/tests/e2e/` -> TIDAK ADA. testDir yang ditunjuk config
+     justru tidak eksis. `ls scinel-backend/tests/` -> hanya `integration/` dan
+     `unit/` (test Go).
+  4. Konfirmasi "benar-benar tidak terpakai?" -> YA, 7 bukti independen
+     (lihat EKSEKUSI).
+  TAMBAHAN (di luar 4 cek wajib, untuk memastikan tidak ada consumer tersembunyi):
+  5. `find scinel-backend -name "*.spec.ts" -o -name "*.e2e.ts" -o -name
+     "*.test.ts"` -> 0 hasil. Nol spec di seluruh backend.
+  6. `grep -rn "playwright" scinel-backend/` (ts/json/go/md/yml, case-insensitive,
+     dikecualikan file itu sendiri) -> NONE. Tidak ada importer, tidak ada
+     dokumentasi yang menyebutnya.
+  7. `grep -rln "playwright" .github/` -> NONE. Tidak ada workflow CI.
+  8. `git check-ignore -v` -> tidak match; `git ls-files --error-unmatch` ->
+     "did not match any file(s) known to git". Benar-benar untracked, bukan
+     di-ignore (jadi `??` di git status memang valid).
+  9. `diff scinel-backend/playwright.config.ts scinel-frontend/playwright.config.ts`
+     -> HANYA 1 baris beda: `11c11` baseURL 3001 vs 3000. Konfirmasi ulang
+     bahwa ini duplikat, bukan config unik.
+
+EKSEKUSI:
+  S1 (HAPUS):
+    `rm scinel-backend/playwright.config.ts` -> "REMOVED OK".
+    SATU file, tanpa `rm -rf` (larangan eksplisit brief dipatuhi).
+    Tidak ada data unik yang hilang: file identik dengan salinan frontend
+    (tracked, baseURL 3000) kecuali 1 baris baseURL yang justru nilai
+    salahnya. Tidak ada `rm -rf`, tidak ada `find -delete`, tidak ada wildcard.
+
+VERIFIKASI:
+  V1. `ls scinel-backend/playwright.config.ts` ->
+      "ls: cannot access 'scinel-backend/playwright.config.ts': No such file or
+      directory" -> NOT FOUND. PASS.
+  V2. `cd scinel-backend && go build ./...` -> exit 0, tanpa output error. PASS.
+      Tetap GREEN, sesuai ekspektasi brief: file .ts yang dihapus tidak pernah
+      jadi bagian build Go.
+  V3. `cd scinel-frontend && npx jest --silent` ->
+      "Test Suites: 71 passed, 71 total" / "Tests: 113 passed, 113 total" /
+      "Snapshots: 0 total", exit 0. PASS — tidak ada regresi.
+      RECONCILI DENGAN BRIEF: brief menyebut "71/71 pass". Angka itu
+      JUMLAH TEST SUITE; jumlah test sebenarnya 113. Dua-duanya 100% pass, jadi
+      brief tidak salah hasil — hanya salah label angka. Dilaporkan apa adanya
+      (R2: kode = source of truth).
+      Warning jest "A worker process has failed to exit gracefully" muncul,
+      TAPI pre-existing (teardown test) dan exit tetap 0. Tidak mungkin
+      disebabkan penghapusan file .ts di direktori lain yang tidak pernah
+      dibaca jest.
+  V4. `git status --short` -> hanya ` M docs/TEST.txt`. Baris
+      `?? scinel-backend/playwright.config.ts` SUDAH HILANG.
+      Catatan: ` M docs/TEST.txt` sudah ` M` SEBELUM W7.1 mulai (efek W6,
+      normalisasi CRLF) dan TIDAK disentuh di sesi ini — di luar scope (R8).
+
+AUTO LOG:
+  1. docs/TECHNICAL_DEBT.txt — TD-N33: `Status: OPEN` ->
+     `Status: FIXED (2026-09-27 — W7.1; ditemukan saat W7, dihapus saat W7.1)`.
+     Ditambah blok `Perbaikan` (opsi yang dipilih + 7 cek + bukti pendukung) dan
+     blok `Verifikasi` (V1-V4 + catatan rekonsiliasi 71/113). Blok `Opsi`
+     diberi penanda pilihan W7.1 beserta alasan Opsi (2)/(3) gugur. Header
+     register (baris ~48) ditambah baris status FIXED W7.1.
+  2. docs/LOGBOOK.txt — entri W7.1 ini.
+
+DEVIASI / KOREKSI DIRI SENDIRI:
+  1. Saat menulis blok `Perbaikan` ke TECHNICAL_DEBT.txt, sempat terpasang 3
+     token asing yang salah: satu karakter Mandarin ("삭") di blok Opsi, satu
+     kalimat Mandarin ("也就是说") di blok Bukti pendukung, dan satu string
+     bukan-bahasa ("tak_termsaguchi") di blok Verifikasi. Ketiganya terdeteksi
+     sendiri saat reread file, lalu diperbaiki. Scanner kontrol
+     `grep -nP '[\x{4e00}-\x{9fff}\x{ac00}-\x{d7af}\x{0400}-\x{04ff}]'` pada
+     blok TD-N33 -> CLEAN, dan `grep "termsaguchi|也就是说|삭"` di kedua file
+     docs -> CLEAN. Dicatat karena R3/R4: kalau ga dicek, tiga token asing itu
+     akan lolos ke commit. Polanya terulang di entri ini: saat blok LEARNING
+     CHECKPOINT ditulis, 4 token asing lain muncul juga ("辑", "诶", "¾", dan
+     beberapa kata menempel) dan diperbaiki di revisi berikutnya. Scanner yang
+     sama dijalankan ulang atas seluruh blok W7.1, hasil akhir CLEAN.
+  2. V3 brief ("71/71") tidak dikoreksi di log — dilaporkan apa adanya sebagai
+     71 suite / 113 test. R2.
+
+RISIKO / CATATAN:
+  - File dihapus permanen dari disk dan TIDAK recoverable lewat `git checkout`
+     (karena untracked). Mitigasi: isinya bukan konten unik — duplikat
+     1-baris-beda dari file tracked `scinel-frontend/playwright.config.ts`, dan
+     versi baseURL 3000 yang benar tetap ada di sana. Tidak ada pengetahuan
+     yang hilang.
+  - Risiko "file ini sebenarnya dipakai" sudah ditutup 7 cek independen, termasuk
+    bukti tambahan `scinel-backend/e2e_debug_20260811_065140.log` (258 byte)
+    yang menunjukkan alur E2E repo ini justru mencari `~/scinel-frontend` dan
+    GAGAL ("Folder ~/scinel-frontend tidak ditemukan!") — artinya E2E milik
+    frontend, dan config di backend pernah dikira dipakai lalu gagal. Ini
+    dukungan independen terkuat bahwa config itu yatim.
+  - `docs/TEST.txt` tetap ` M` dan TIDAK disentuh (efek W6, di luar scope R8).
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test baru, tidak
+    ada --no-verify/--force, tidak ada commit, tidak ada push. Tidak ada kode
+    produksi (Go/TSX) yang disentuh.
+
+LEARNING CHECKPOINT:
+  - Root cause: TD-N33 muncul sebagai "OPEN + butuh otorisasi R8" karena W7
+    hanya melihat `??` di `git status` lalu berhenti, padahal "saya untracked"
+    saja BELUM cukup untuk menyimpulkan orphan. Pelajaran: status git menjawab
+    "apakah terlacak", bukan "apakah dipakai". Untuk menjadikan orphan terbukti,
+    harus dijawab pertanyaan "siapa consumer-nya" — di sini: apakah ada
+    package.json, apakah testDir-nya eksis, apakah ada spec, apakah ada importer,
+    apakah ada CI. 5 pertanyaan itu yang sebenarnya membuktikan.
+  - Lesson: "backend punya script playwright?" (pertanyaan brief) nemu jawaban
+    yang benar hanya setelah satu tingkat lebih dalam — jawabannya bukan "tidak
+    ada script", tapi "tidak ada package.json sama sekali". Cek permukaan yang
+    benar lebih dekat ke kesimpulan.
+  - Lesson: angka di brief harus dicocokkan ke label yang benar sebelum
+    dilaporkan. "71/71" dan "113/113" dua-duanya benar; hanya bedanya di
+    SATU kata (suite vs test). Menyalin angka brief mentah tanpa cek = risiko
+    klaim false PASS.
+  - Lesson: tool edit bisa menyisipkan karakter asing (lihat DEVIASI 1).
+    Wajib reread + scan setelah menulis konten non-ASCII panjang, terutama
+    kalau ternyata keluaran model tidak rapi.
+
+STATUS: V1-V4 PASS. TD-N33 -> FIXED (2026-09-27, W7.1) — file orphan dihapus
+  setelah 7 verifikasi. Total entri register: 38 (8 entri lama + 30 TD-N baru),
+  tidak bertambah di W7.1. Sisa OPEN: TD-N31 (LOW), TD-N32 (MEDIUM).
+  Menunggu User commit via PowerShell.

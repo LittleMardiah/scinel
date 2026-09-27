@@ -47,6 +47,9 @@ Item BARU di W7: TD-N31 (hooks/useApi.ts + hooks/useBreakpoint.ts tidak punya
              console.warn di jalur produksi),
              TD-N33 (scinel-backend/playwright.config.ts untracked di backend —
              duplikat peran dengan scinel-frontend/playwright.config.ts yang tracked).
+             TD-N33 -> FIXED di W7.1 (2026-09-27): file dihapus setelah 7 cek
+             independen memastikan orphan (backend Go murni tanpa package.json,
+             tanpa tests/e2e/, tanpa spec .ts, tanpa referensi, tanpa CI).
 KOREKSI FAKTA di W7: TD-N28. Angka "85% duplikat / 420 dari 424 baris / comm -23 ->
              14+ baris unik" SALAH ARAH. Verifikasi ulang W7 (CRLF dinormalisasi):
              316 dari 319 baris unik TEST.txt TIDAK ada di TEST.md; hanya 2 baris
@@ -647,7 +650,7 @@ Referensi cepat:
 
 [TD-N33] scinel-backend/playwright.config.ts untracked & stale (baseURL 3001)
   Severity : LOW (baru — ditemukan saat W7 2026-09-27 lewat `git status --short`)
-  Status   : OPEN
+  Status   : FIXED (2026-09-27 — W7.1; ditemukan saat W7, dihapus saat W7.1)
   Deskripsi: Ada salinan konfigurasi Playwright di backend yang tidak pernah
              dilacak git dan masih memakai baseURL lama 3001 — justru port yang
              sudah diperbaiki sebagai bug di W3 (bagian A item 1). Config yang
@@ -673,10 +676,58 @@ Referensi cepat:
              yang hilang — tapi penghapusan file di luar SCOPE W7 -> R8, mohon
              otorisasi); (2) untrack + pindahkan ke docs/ sebagai catatan;
              (3) biarkan tapi tambahkan komentar penegas. W7 tidak memilih -> R8.
+             >>> W7.1 MEMILIH OPSI (1) — hapus, setelah verifikasi orphan (lihat
+             Perbaikan). Opsi (2) dan (3) gugur: tidak ada konten unik untuk
+             dipindah (file identik dengan salinan frontend kecuali baseURL).
   Catatan : file ini BUKAN salah satu dari 41 .bak* yang dihapus di W7 — namanya
              `playwright.config.ts`, tidak mengandung `.bak`, dan tidak
              terpengaruh `find . -name "*.bak*" -delete`. Bukti tambahan:
              `git status --short` masih menampilkannya sebagai `??`.
+  Perbaikan: W7.1 (2026-09-27) — Opsi (1) dijalankan: `rm
+             scinel-backend/playwright.config.ts` (SATU file, tanpa `rm -rf`).
+             Sebelum dihapus, 7 cek independen memastikan file benar-benar orphan
+             dan tidak dipakai apa pun:
+             (1) `cat scinel-backend/playwright.config.ts` -> baseURL
+             `http://localhost:3001` di baris 11, testDir './tests/e2e';
+             (2) `cat scinel-backend/package.json` -> FILE TIDAK ADA. Backend ini
+             Go murni (go.mod/go.sum), tidak punya dependensi npm sama sekali,
+             jadi `@playwright/test` mustahil terpasang di sini;
+             (3) `ls scinel-backend/tests/e2e/` -> TIDAK ADA. testDir yang ditunjuk
+             config justru tidak eksis; `ls scinel-backend/tests/` hanya berisi
+             `integration/` dan `unit/` (Go test);
+             (4) `find scinel-backend -name "*.spec.ts" -o -name "*.e2e.ts" -o
+             -name "*.test.ts"` -> 0 hasil. Tidak ada satu pun spec E2E di backend;
+             (5) `grep -rn "playwright" scinel-backend/` (ts/json/go/md/yml) ->
+             NONE selain config itu sendiri. Tidak ada importer, tidak ada
+             dokumentasi yang menyebutnya;
+             (6) `grep -rln "playwright" .github/` -> NONE. Tidak ada workflow CI
+             yang memakainya;
+             (7) `git check-ignore` -> tidak match, `git ls-files
+             --error-unmatch` -> "did not match any file(s) known to git".
+             Benar-benar untracked, bukan di-ignore.
+             Bukti pendukung: `scinel-backend/e2e_debug_20260811_065140.log`
+             (258 byte) menunjukkan alur E2E repo ini justru mencari
+             `~/scinel-frontend` dan GAGAL ("Folder ~/scinel-frontend tidak
+             ditemukan!") — artinya E2E memang milik frontend, dan pernah
+             dikira dijalankan dari backend lalu gagal. Ini memperkuat
+             kesimpulan orphan.
+             Tidak ada data unik yang hilang: `diff` terhadap config frontend
+             hanya 1 baris (baseURL 3001 vs 3000), dan versi 3000 yang
+             benar sudah tracked di git.
+  Verifikasi: V1 `ls scinel-backend/playwright.config.ts` -> "No such file or
+             directory" (NOT FOUND). V2 `cd scinel-backend && go build ./...` ->
+             PASS, exit 0, tanpa output error (build Go tidak terpengaruh — file
+             yang dihapus bukan bagian build Go, sesuai ekspektasi brief). V3
+             `cd scinel-frontend && npx jest --silent` -> Test Suites: 71 passed,
+             71 total; Tests: 113 passed, 113 total; exit 0. V4 `git status
+             --short` -> hanya ` M docs/TEST.txt`; baris `?? scinel-backend/
+             playwright.config.ts` HILANG. Catatan V3: angka "71" di brief
+             adalah jumlah TEST SUITE, bukan jumlah test — jumlah test adalah
+             113. Keduanya 100% pass, jadi brief tidak salah hasil, hanya salah
+             label. Jest juga mencetak warning "A worker process has failed to
+             exit gracefully" — pre-existing (teardown test), exit tetap 0, dan
+             tidak mungkin disebabkan penghapusan file .ts di direktori lain
+             yang tidak pernah dibaca jest.
 
 [TD-N13] WebhookPublisher.ProcessDeliveries tidak pernah dipanggil
   Severity : HIGH
