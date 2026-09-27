@@ -108,7 +108,7 @@ cd scinel-frontend && pnpm test
 
 | Dokumen | Deskripsi |
 |---------|-----------|
-| [API Docs](docs/API.md) | Dokumentasi lengkap 23 endpoint (request/reponse) |
+| [API Docs](docs/API.md) | Dokumentasi lengkap 27 endpoint (request/reponse) |
 | [Architecture](docs/ARCHITECTURE.md) | Clean architecture, data flow, skema database |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Masalah umum & solusi dari pengalaman debugging |
 | [Contributing](docs/CONTRIBUTING.md) | Code standards & PR process |

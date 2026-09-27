@@ -21,7 +21,7 @@ Rilis stabil pertama ScIntel — Supply Chain Intelligence Platform.
 - **Rate Limiting**: sliding window berbasis Redis (1000 req/s per key), graceful degradation (fail-open) saat Redis turun.
 - **Security Headers**: CORS whitelist, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, HSTS, Content-Security-Policy, Referrer-Policy.
 - **Database**: 12 tabel via golang-migrate + schema_id SQL; index untuk query umum (warehouse_id, created_at DESC, detected_at DESC, email).
-- 23 endpoint REST client-callable (dokumentasi lengkap di `docs/API.md`).
+- 27 endpoint REST client-callable (dokumentasi lengkap di `docs/API.md`).
 
 #### Frontend (Next.js 14 / TypeScript)
 - App Router + Tailwind CSS v3, dark mode via next-themes.
@@ -35,7 +35,7 @@ Rilis stabil pertama ScIntel — Supply Chain Intelligence Platform.
 
 ### Changed
 - Refactor struktur repo menjadi monorepo `scinel-backend/` + `scinel-frontend/` + `docs/`.
-- Dokumentasi lengkap: README, API docs (23 endpoint), ARCHITECTURE, TROUBLESHOOTING, CONTRIBUTING, LOGBOOK, TECHNICAL_DEBT.
+- Dokumentasi lengkap: README, API docs (27 endpoint), ARCHITECTURE, TROUBLESHOOTING, CONTRIBUTING, LOGBOOK, TECHNICAL_DEBT.
 
 ### Fixed
 - Integration test di WSL (pindah ke sqlmock, lepas dari Docker).

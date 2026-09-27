@@ -3220,3 +3220,224 @@ STATUS: V1-V4 PASS. TD-N33 -> FIXED (2026-09-27, W7.1) — file orphan dihapus
   setelah 7 verifikasi. Total entri register: 38 (8 entri lama + 30 TD-N baru),
   tidak bertambah di W7.1. Sisa OPEN: TD-N31 (LOW), TD-N32 (MEDIUM).
   Menunggu User commit via PowerShell.
+
+2026-09-27 - W8: XFF hop pertama (TD-N26) + composition test (TD-N27) + endpoint 23 -> 27
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 - scinel-backend/internal/middleware/rate_limit.go: ambil hop PERTAMA
+     X-Forwarded-For, bukan rantai mentah (TD-N26).
+  2. S2 - scinel-backend/cmd/api/main_test.go: ganti placeholder jadi
+     composition test (TD-N27).
+  3. S3 - docs/API.md + README.md + CHANGELOG.md: angka endpoint 23 -> aktual.
+  4. V1-V7 + AUTO LOG (TECHNICAL_DEBT.txt, LOGBOOK.txt).
+  Scope: 4 file Go (2 di middleware, 1 di cmd/api) + 3 file docs + 2 file log.
+  TIDAK ada commit/push, TIDAK ada any, TIDAK ada @ts-ignore, TIDAK ada skip
+  test baru, TIDAK ada time.Sleep.
+
+CEK DULU (semua SEBELUM ubah file — R2/R3):
+  1. rate_limit.go:116-121 (pra-fix) - XFF dibaca LANGSUNG/mentah:
+       ip := r.RemoteAddr
+       if xff := r.Header.Get("X-Forwarded-For"); xff != "" { ip = xff }
+       return "ip:" + ip
+     Tanpa SplitHostPort, tanpa split comma. Fallback RemoteAddr juga mentah,
+     port ikut -> rate_limit_test.go:54 lama meng-assert "ip:192.168.1.1:1234".
+  2. cmd/api/main_test.go:1-7 - placeholder:
+       func TestMainPlaceholder(t *testing.T) { t.Skip(...) }.
+  3. Jumlah route AKTUAL = 27, tiga cara independen:
+       grep -c "api/v1" cmd/api/main.go -> 27
+       grep -cE "mux\.Handle(Func)?\(" cmd/api/main.go -> 27
+       grep -cE "^\| (GET|POST|PUT|DELETE|PATCH) \|" docs/API.md -> 27
+     API.md per-section: 4+3+5+3+4+4+4 = 27 (auth/health/inventory/forecast/
+     anomaly/api-keys/webhooks). Jadi angka 23 = STALE, aktual 27 (R2).
+  4. Baris docs yang menyebut "23" (4):
+       docs/API.md:67   "**Total: 27 routes / 23 endpoint unik**"
+       README.md:111    "Dokumentasi lengkap 23 endpoint (request/reponse)"
+       CHANGELOG.md:24  "- 23 endpoint REST client-callable (...)"
+       CHANGELOG.md:38  "Dokumentasi lengkap: README, API docs (23 endpoint), ..."
+  5. rate_limit_test.go:29-62 - getLimitKey sudah punya 5 subtest, XFF baru
+     diuji pada kasus SINGLE ("x-forwarded-for fallback" -> ip:10.0.0.1).
+     Kasus CHAIN dan XFF kosong -> fallback TANPA port BELUM ada. Test lama
+     justru mengunci perilaku salah (port ikut).
+
+S1 - XFF HOP PERTAMA (TD-N26):
+  - rate_limit.go:1-12 import ditambah "net" dan "strings".
+  - rate_limit.go:118-119: `return "ip:" + clientIP(r)` (ganti blok ip/xff).
+  - rate_limit.go:122-138: helper baru clientIP(r):
+      * strings.Split(xff, ",")[0] + strings.TrimSpace -> hop pertama;
+      * hop pertama kosong -> fallback net.SplitHostPort(r.RemoteAddr);
+      * SplitHostPort error (RemoteAddr tanpa port) -> pakai RemoteAddr mentah;
+      * XFF kosong -> langsung fallback RemoteAddr.
+  - Prioritas key lain (X-API-Key :108, UserContextKey :114) tidak disentuh.
+  - rate_limit_test.go: subtest "ip fallback" -> "ip fallback strips port"
+    (assertion `ip:192.168.1.1`, sebelumnya `ip:192.168.1.1:1234`), plus 3
+    subtest baru: "x-forwarded-for single hop" (RemoteAddr sengaja diisi
+    10.10.10.10:5555 agar terbukti XFF menang), "x-forwarded-for chain uses
+    first hop only" (XFF "1.2.3.4, 5.6.7.8" -> ip:1.2.3.4), dan
+    "x-forwarded-for empty falls back to remote addr" -> ip:192.168.1.1.
+    Subtest getLimitKey: 5 -> 7.
+
+S2 - COMPOSITION TEST (TD-N27):
+  - Placeholder dihapus (t.Skip ikut hilang — 1 skip berkurang).
+  - Helper newCompositionChain (main_test.go:33-78) merakit rantai yang SAMA
+    dengan main.go:146-153 di atas stub mux: CORS -> SecurityHeaders -> Auth ->
+    RateLimit -> mux, memakai miniredis + JWTManager asli (tanpa DB/repo).
+  - 5 test, tanpa t.Skip, tanpa time.Sleep (deterministik, in-process):
+    (1) TestMainComposition_ProtectedRouteWithoutAuthReturns401
+        GET /api/v1/inventory tanpa Authorization -> 401, muxCalls == 0.
+    (2) TestMainComposition_PublicRouteWithoutAuthReturns200
+        GET /health tanpa Authorization -> 200, muxCalls == 1
+        (publicPaths auth.go:60).
+    (3) TestMainComposition_AuthRunsBeforeRateLimit
+        "Bearer not-a-valid-jwt" -> 401 DAN rateLimitKeys(miniredis) kosong,
+        jadi request yang ditolak Auth tidak pernah sampai ke rate limiter.
+        (Varian kuat dari opsi "simplifikasi" di brief.)
+    (4) TestMainComposition_RateLimitAppliesAfterSuccessfulAuth
+        token valid -> 200, mux dipanggil, key persis
+        ["rate_limit:user:1111...5555"] + header X-RateLimit-Limit 1000.
+        Ini bukti POSITIF arah urutan: limiter hanya bisa dikunci user
+        post-auth (tidak ada lagi key "ip:..." liar).
+    (5) TestMainComposition_MiddlewareOrderInMainSource
+        go/parser membaca main.go, flatten rantai handler, lalu assert
+        ["CORSMiddleware","SecurityHeaders","AuthMiddleware","Apply"] dengan
+        innermost "mux". Test ini yang mengikat test (1)-(4) ke kode produksi.
+
+S3 - DOKS ENDPOINT COUNT (23 -> 27):
+  4 baris terupdate seperti daftar CEK-DULU poin 4. Angka 27 diambil dari
+  hitungan kode (bukan asumsi brief), jadi konsisten dengan R2.
+
+VERIFIKASI:
+  V1. grep -n "strings.Split\|X-Forwarded-For" internal/middleware/rate_limit.go
+      -> 3 match (:124 komentar, :129 header, :130 strings.Split) >= 2. PASS.
+  V2. `go test -run TestGetLimitKey ./internal/middleware/... -v` -> "no tests to
+      run" + PASS. CATATAN: nama test sebenarnya
+      TestRateLimitMiddleware_getLimitKey, jadi filter literal di brief tidak
+      menangkap apa pun. Dilaporkan apa adanya; filter yang benar
+      `go test -run TestRateLimitMiddleware_getLimitKey` -> 7/7 subtest PASS.
+  V3. `go test ./cmd/api/... -v` -> 5/5 PASS.
+  V4. `go build ./...` -> exit 0. PASS.
+  V5. `go test ./...` -> 13 paket ok (cmd/api, config, database, handler,
+      middleware, model, repository, scheduler, service, util, logger,
+      timeseries, tests/integration), 0 FAIL, 325 PASS (134 test fungsi
+      tingkat atas + 191 subtest), 9 SKIP. Sembilan SKIP itu PRE-EXISTING di
+      internal/service (5) dan tests/integration (4) — paket yang tidak
+      disentuh di W8 (terbukti git status V7), dan justru pola t.Skip yang
+      dicatat di blok Bukti TD-N27. Anti-flaky: `go test -race -count=3
+      ./cmd/api/... ./internal/middleware/...` -> ok, tanpa DATA RACE.
+  V6. `grep -cE "23 endpoint|23 API" docs/API.md README.md CHANGELOG.md`
+      -> 0, 0, 0 (grep exit 1 = tidak ada match). PASS.
+  V7. `git status --short` -> 7 file: CHANGELOG.md, README.md, docs/API.md,
+      docs/TECHNICAL_DEBT.txt, scinel-backend/cmd/api/main_test.go,
+      scinel-backend/internal/middleware/rate_limit.go,
+      scinel-backend/internal/middleware/rate_limit_test.go, plus
+      ` M docs/TEST.txt` yang SUDAH ` M` sebelum W8 (efek W6, normalisasi
+      CRLF) dan TIDAK disentuh. Tidak ada file di luar scope yang berubah.
+
+  BUKTI TEST TIDAK VACUOUS (tambahan, di luar brief): urutan Auth/SecurityHeaders
+  di main.go:147-153 ditukar sementara, `go test ./cmd/api/... -run
+  TestMainComposition_MiddlewareOrderInMainSource` GAGUR dengan diff persis
+  ('+"AuthMiddleware" / -"SecurityHeaders"'), lalu main.go dikembalikan dengan
+  `git checkout -- cmd/api/main.go`; `git status --short cmd/api/main.go`
+  -> kosong dan `sed -n '146,153p'` menampilkan urutan asli lagi. Tanpa
+  langkah ini, test (5) hanya klaim tanpa bukti.
+
+AUTO LOG:
+  1. docs/TECHNICAL_DEBT.txt — TD-N26: `Status: OPEN` -> `Status: FIXED
+     (2026-09-27 — W8; ditemukan saat W5b 2026-09-26)`, blok Bukti ditulis ulang
+     sebagai "(SEBELUM FIX) rate_limit.go:117-121", ditambah blok `Perbaikan`
+     (opsi (a) + helper clientIP + perilaku fallback) dan `Verifikasi` (3
+     subtest baru + update subtest lama) dan `Sisa yang jujur` (spoofing hop
+     pertama XFF masih mungkin bila proxy tak menimpa header; butuh keputusan
+     deployment). Blok `Dampak`/`Opsi` lama diganti oleh blok FIXED-style
+     yang dipakai entri FIXED lain (mis. TD-N13).
+  2. docs/TECHNICAL_DEBT.txt — TD-N27: `Status: OPEN` -> `Status: FIXED
+     (2026-09-27 — W8; ...)`, ditambah blok `Perbaikan` (5 test, sizing helper
+     + 1 bukti mutation) dan `Verifikasi` (V3 + mutation proof) dan `Sisa yang
+     jujur` (opsi (1) buildServer TIDAK dikerjakan — main.go di luar scope
+     R8; registrasi route + interval scheduler masih tanpa pagar regresi).
+  3. docs/TECHNICAL_DEBT.txt — header register: baris 4 (diverifikasi ulang
+     + W8), baris 5 (Status + ringkasan W8), baris 8 (tambah baris "Item FIXED
+     di W8: TD-N26, TD-N27"). Hitungan "Total entri register: 38" dan "TD baru
+     tercatat: 30" TIDAK diubah karena W8 tidak menambah TD baru — itu
+     dinyatakan eksplisit di baris baru, bukan dibiarkan ambigu.
+  4. docs/LOGBOOK.txt — entri W8 ini.
+
+DEVIASI / KOREKSI DIRI SENDIRI:
+  1. Test ke-5 yang sempat saya tulis sendiri di S1 ("x-forwarded-for leading
+     comma skips empty hop", XFF "  , 5.6.7.8" -> ip:5.6.7.8) GAGUR. Brief
+     hanya minta 3 subtest dan menetapkan aturan "ambil bagian PERTAMA";
+     kode benar, test saya yang over-spec. Subtest dihapus, bukan kode
+     dilonggarkan. 9 baris yang tidak ada gunanya tidak masuk commit.
+  2. Test struktural (5) sempat GAGUR dengan chain
+     ["CORSMiddleware","SecurityHeaders","","Apply"]: `AuthMiddleware(a, b)(h)`
+     adalah aplikasi curried, jadi di AST `CallExpr.Fun` adalah `CallExpr`
+     lain dan callName() mengembalikan "". Diperbaiki di callName()
+     (main_test.go:194-207) dengan rekursi ke `*ast.CallExpr`, bukan dengan
+     melempar assert ke bawah.
+  3. Salah baca struktur: awal S2 saya sudah menulis reset `chain = nil` di
+     dalam loop sebelum sadar itu tidak diperlukan untuk
+     find-first (assignment pertama yang cocok sudah pasti
+     handlerWithMiddleware). Dibersihkan -> satu editing sia-sia.
+  4. Percobaan mutation-test pertama diblokir permission (menulis backup ke
+     /tmp dari dalam repo). Diulang tanpa backup file: python menulis mutasi,
+     test dijalankan, `git checkout -- cmd/api/main.go` mengembalikan. Tidak
+     ada file backup di /tmp yang dibuat di percobaan kedua.
+  5. Angka "23" di 4 file lain TIDAK saya sentuh karena di luar scope dan
+     sifatnya historis: docs/TECHNICAL_DEBT.txt:203 (entri "DOKUMENTASI
+     MONOREPO 2026-09-04", Status: SELESAI), docs/LOGBOOK.txt:792/1652/1733/2927
+     (entri log historis — logbook append-only, tidak menulis ulang riwayat),
+     docs/AUDIT 4 ROADMAP.md:28/187, docs/BLUEPRINT 4 ROADMAP FILES.md:1497
+     ("harus exactly 23"). Laporkan ke User, bukan diam-diam diedit (R8).
+
+RISIKO / CATATAN:
+  - Perubahan perilaku yang mungkin terasa: key rate limit untuk klien tanpa
+    auth DI BELAKANG PROXY sekarang per-IP (bukan per-rantai) dan TANPA port.
+    Efeknya Positif (bucket per klien), tapi angka bucket aktif akan naik —
+    memengaruhi angka metrik "jumlah key rate_limit:*" di Redis, bukan
+    throughput. Tidak ada threshold/alarm yang bergantung pada jumlah key.
+  - Spoofing hop pertama XFF belum ditutup (lihat Sisa pada TD-N26). Penutupan
+    penuh butuh allowlist proxy tepercaya di config; itu perubahan config +
+    handler, di luar scope W8.
+  - Test (1)-(4) menguji salinan rantai yang disusun di newCompositionChain,
+    bukan handler yang di-return main(), karena wiring inline di main()
+    (main.go:146-153) tidak punya seam yang bisa dipanggil dan main.go di luar
+    scope. Yang menutup celah ini adalah test (5) yang membaca main.go
+    (dan terbukti menangkap mutasi). Solusi permanen = ekstrak
+    func buildServer/buildRouter, opsi (1) di TD-N27 -> perlu otorisasi R8.
+  - gofmt: `gofmt -l` menyebut 6 file yang sudah rusak format SEBELUM W8
+    (cmd/api/main.go, internal/middleware/{auth_test,cors,middleware_test,
+    rate_limit,rbac}.go) karena repo memakai indentasi 4 spasi di sana.
+    rate_limit.go ikut ter-listed karena itu, tapi TIDAK saya reformat — akan
+    jadi diff ratusan baris di luar tujuan W8. main_test.go (file baru)
+    gofmt-clean. Catatan R4: go vet / go build tidak gagal karena indentasi.
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test baru
+    (justru 1 skip terhapus), tidak ada --no-verify/--force, tidak ada
+    commit, tidak ada push. Kode produksi yang disentuh hanya rate_limit.go
+    (1 helper).
+
+LEARNING CHECKPOINT:
+  - Root cause TD-N26: XFF dibaca sebagai "nilai", padahal secara protokol
+    XFF itu LIST. Bug ini tidak terlihat di dev (tanpa proxy, XFF kosong) dan
+    baru muncul di deployment. Pelajaran: saat RateLimit/Auth memakai
+    identitas jaringan, parse format header sesuai RFC (chain), jangan
+    memperlakukan nilai mentah sebagai identitas.
+  - Root cause TD-N27: paket Go bisa "hijau" 100% dengan t.Skip tanpa
+    assertion. Jadi "paket hijau" != "paket teruji" — metrik yang benar harus
+    menanyakan berapa test yang punya assertion nyata, bukan berapa yang
+    exit 0. 9 SKIP yang tersisa di repo ini adalah sisa masalah yang sama,
+    di luar scope W8.
+  - Lesson (V2): filter `go test -run` yang salah lewat = "no tests to run"
+    yang masih exit 0 dan terlihat PASS. Selalu cek baris "=== RUN"/"--- PASS"
+    per test, bukan cuma exit code.
+  - Lesson: composition test yang dibangun ulang di file test == tes salinan.
+    Murah cara mengikatnya ke produksi: baca source wiring-nya (go/parser)
+    dan assert strukturnya — deterministik, tanpa perlu seam. Brief
+    sendiri menawarkan opsi "simplifikasi"; W8 memberi bukti lebih kuat.
+  - Lesson: setiap addition di luar brief harus diuji skeptis. Subtest kelima
+    yang saya tambah sendiri langsung gagal — kalau tidak ditulis, tidak akan
+    pernah ketahuan bahwa spec dan implementasi berbeda.
+
+STATUS: V1-V7 PASS (V2 perlu koreksi filter nama test, dilaporkan apa adanya).
+  TD-N26 -> FIXED (2026-09-27, W8). TD-N27 -> FIXED (2026-09-27, W8).
+  Sisa OPEN tidak berubah: TD-N31 (LOW), TD-N32 (MEDIUM). Total entri
+  register: 38 (8 entri lama + 30 TD-N baru), tidak bertambah di W8.
+  Menunggu User commit via PowerShell.

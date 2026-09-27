@@ -3,8 +3,10 @@ package middleware
 import (
     "context"
     "fmt"
+    "net"
     "net/http"
     "strconv"
+    "strings"
     "time"
 
     "github.com/go-redis/redis/v8"
@@ -114,9 +116,23 @@ func (rl *RateLimitMiddleware) getLimitKey(r *http.Request) string {
     }
 
     // Fallback to IP address (not ideal)
-    ip := r.RemoteAddr
+    return "ip:" + clientIP(r)
+}
+
+// clientIP returns the address used to bucket unauthenticated requests.
+//
+// X-Forwarded-For is an append-only chain ("client, proxy1, proxy2"), so only
+// the first hop is the originating client. Keying on the whole chain would
+// merge every client behind the proxy into a single rate limit bucket. When
+// the header is absent, the TCP peer address is used with its port stripped.
+func clientIP(r *http.Request) string {
     if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-        ip = xff
+        if first := strings.TrimSpace(strings.Split(xff, ",")[0]); first != "" {
+            return first
+        }
     }
-    return "ip:" + ip
+    if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+        return host
+    }
+    return r.RemoteAddr
 }

@@ -48,16 +48,31 @@ func TestRateLimitMiddleware_getLimitKey(t *testing.T) {
 		assert.Equal(t, "sk_test_abc", rl.getLimitKey(req))
 	})
 
-	t.Run("ip fallback", func(t *testing.T) {
+	t.Run("ip fallback strips port", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 		req.RemoteAddr = "192.168.1.1:1234"
-		assert.Equal(t, "ip:192.168.1.1:1234", rl.getLimitKey(req))
+		assert.Equal(t, "ip:192.168.1.1", rl.getLimitKey(req))
 	})
 
-	t.Run("x-forwarded-for fallback", func(t *testing.T) {
+	t.Run("x-forwarded-for single hop", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+		req.RemoteAddr = "10.10.10.10:5555"
 		req.Header.Set("X-Forwarded-For", "10.0.0.1")
 		assert.Equal(t, "ip:10.0.0.1", rl.getLimitKey(req))
+	})
+
+	t.Run("x-forwarded-for chain uses first hop only", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+		req.RemoteAddr = "10.10.10.10:5555"
+		req.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
+		assert.Equal(t, "ip:1.2.3.4", rl.getLimitKey(req))
+	})
+
+	t.Run("x-forwarded-for empty falls back to remote addr", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+		req.RemoteAddr = "192.168.1.1:1234"
+		req.Header.Set("X-Forwarded-For", "")
+		assert.Equal(t, "ip:192.168.1.1", rl.getLimitKey(req))
 	})
 }
 

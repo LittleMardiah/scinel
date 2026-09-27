@@ -1,10 +1,11 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26, 2026-09-27 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b, W6, W6.1, W7)
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER + W6 REPO HYGIENE (GITIGNORE ENCODING / LICENSE / SECURITY / CI ROOT) + W6.1+W7 COMMIT CHANGELOG/README, RENAME LICENSE GOLANG-MIGRATE, HAPUS 41 .bak
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26, 2026-09-27 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b, W6, W6.1, W7, W8)
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER + W6 REPO HYGIENE (GITIGNORE ENCODING / LICENSE / SECURITY / CI ROOT) + W6.1+W7 COMMIT CHANGELOG/README, RENAME LICENSE GOLANG-MIGRATE, HAPUS 41 .bak + W8 XFF HOP PERTAMA + COMPOSITION TEST cmd/api + KOREKSI JUMLAH ENDPOINT DOCS (23 -> 27)
 Total entri register: 38 (8 entri lama + 30 TD-N baru)
 TD baru tercatat: 30
+Item FIXED di W8: TD-N26 (XFF hop pertama + port dibuang dari key), TD-N27 (composition test cmd/api, 5 test). W8 tidak menambah TD baru -> hitungan 30/38 tidak berubah.
 Item lama diverifikasi STALE/PARTIAL: 8
 Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
 Item FIXED di W3.1: TD-N17 (Suspense /reset-password)
@@ -1171,62 +1172,96 @@ Referensi cepat:
 
 [TD-N26] X-Forwarded-For mentah dipakai sebagai key rate limit
   Severity : MEDIUM (baru — ditemukan saat W5b 2026-09-26, di luar scope W5b)
-  Status   : OPEN
+  Status   : FIXED (2026-09-27 — W8; ditemukan saat W5b 2026-09-26)
   Deskripsi: getLimitKey memakai nilai X-Forwarded-For apa adanya sebagai key
              rate limit, tanpa mengambil hop pertama. Di belakang reverse
              proxy/load balancer, semua klien berbagi satu key
              "ip:<XF-FULL>", sehingga limit per-klien yang dimaksud hilang:
              satu klien noisy bisa membuat seluruh klien di belakang proxy itu
              ikut kena 429, dan sebaliknya burst normal bisa salah ter-throttle.
-  Bukti    : scinel-backend/internal/middleware/rate_limit.go:118-119
-               if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-                   ip = xff
-               }
-             return "ip:" + ip   (rate_limit.go:121)
-             Prioritas key: X-API-Key (:106) -> UserContextKey (:112) ->
-             fallback IP/XFF (:117-121). Header XFF bisa berisi rantai
-             "client, proxy1, proxy2" dan tidak diparse.
-  Dampak  : hanya pada deployment di belakang proxy. Setup lokal/dev tanpa
-             proxy tidak mengirim XFF, jadi tidak terpengaruh. Sifatnya
-             Availability, bukan keamanan: shared key justru membuat limit
-             longgar terhadap abuse per-klien, dan klien yang memang
-             bermuatan tinggi bisa ikut me-throttle klien lain.
-  Opsi     : (a) ambil hop pertama XFF (strings.Split(xff, ",")[0]) — hanya
-             benar jika proxy tepercaya; (b) konfigurasi "trusted proxy
-             count" lalu ambil hop ke-N; (c) andalkan UserContextKey/API key
-             dan abaikan XFF. Opsi (a) membuka spoofing bila proxy tidak
-             menimpa header, jadi tidak bisa diputus tanpa keputusan
-             deployment.
-             OpenCode TIDAK memilih dan TIDAK mengubah rate_limit.go: file itu
-             di luar SCOPE W5b (R8 + §11.4.3) -> LAPOR ke User/DeepSeek.
+  Bukti    : (SEBELUM FIX) scinel-backend/internal/middleware/rate_limit.go:117-121
+                ip := r.RemoteAddr
+                if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+                    ip = xff
+                }
+                return "ip:" + ip
+              Prioritas key: X-API-Key (:106) -> UserContextKey (:112) ->
+              fallback IP/XFF (:117-121). Header XFF dibaca mentah, tanpa split
+             comma, dan RemoteAddr dipakai dengan port ikut (test lama
+             rate_limit_test.go:54 mencatat "ip:192.168.1.1:1234").
+  Perbaikan: Opsi (a) dari entri ini diterapkan. Helper clientIP
+             (rate_limit.go:128-138) memecah XFF dengan strings.Split(xff, ","),
+             mengambil hop PERTAMA + strings.TrimSpace, lalu return "ip:" +
+             clientIP(r) di :119. Hop pertama kosong -> fallback ke
+             net.SplitHostPort(r.RemoteAddr) supaya port tidak ikut jadi key;
+             SplitHostPort gagal (RemoteAddr tanpa port) -> pakai RemoteAddr
+             apa adanya. Prioritas key lain (X-API-Key, UserContextKey) tidak
+             berubah.
+  Verifikasi: `go test -run TestRateLimitMiddleware ./internal/middleware/... -v`
+             -> 7 subtest getLimitKey PASS, termasuk 3 subtest baru
+             (x-forwarded-for_single_hop -> ip:10.0.0.1;
+             x-forwarded-for_chain_uses_first_hop_only, XFF "1.2.3.4, 5.6.7.8"
+             -> ip:1.2.3.4; x-forwarded-for_empty_falls_back_to_remote_addr ->
+             ip:192.168.1.1). Subtest lama "ip fallback" diperbarui ke
+             "ip fallback strips port" karena port kini dibuang.
+  Sisa yang jujur: hop pertama XFF masih bisa dipalsukan klien bila reverse
+             proxy tidak menimpa header (entri ini sudah menyebut opsi (b)/(c)
+             sebagai alternatif). Tidak ada allowlist proxy tepercaya di config
+             saat ini, jadi W8 menutup salah-pakai key bersama, bukan spoofing
+             header. Closure penuh butuh keputusan deployment (R8: di luar
+             scope W8 -> tetap TD sisi deployment, bukan TD kode).
 
 [TD-N27] cmd/api/main_test.go masih placeholder (tidak ada komposisi test)
   Severity : LOW (baru — ditemukan saat W5b 2026-09-26)
-  Status   : OPEN
+  Status   : FIXED (2026-09-27 — W8; ditemukan saat W5b 2026-09-26)
   Deskripsi: cmd/api/main_test.go hanya berisi TestMainPlaceholder yang
              t.Skip tanpa assertion, sehingga paket cmd/api "hijau" tanpa
              menguji apa pun. Konsekuensinya wiring di main.go (chain
              middleware, registrasi route, interval job scheduler) tidak
              punya pagar regresi: salah pasang tidak akan ditangkap go test.
-  Bukti    : scinel-backend/cmd/api/main_test.go:5-7
-               func TestMainPlaceholder(t *testing.T) {
-                   t.Skip("main function tested via integration tests")
-               }
-             Pola serupa ada di internal/service: forecast_service_test.go
-             memakai t.Skip tanpa assertion, dan service_test.go hanya
-             `func TestPlaceholder(t *testing.T) {}` yang kosong (lulus tanpa
-             menguji apa pun). Belum diinventarisasi menyeluruh di W5b.
-  Dampak  : rendah sekarang (test integrasi tests/integration masih hidup dan
-             hijau), tetapi keputusan wiring berikutnya bisa lolos tanpa
-             terdeteksi.
-  Catatan: W5b menambah 18 test unit di internal/scheduler yang menutup
-           scheduler-nya, tetapi TIDAK menutup komposisi cmd/api: main() masih
-           hanya bisa diuji manual (butuh Postgres + Redis hidup).
-  Opsi     : (1) ekstrak baris perakit dari main() ke func buildServer(cfg,
-             deps) lalu diuji dengan httptest; (2) tambahkan test yang
-             memanggil main() dengan config uji + port acak; (3) biarkan dan
-             andalkan integration test. Opsi (1) menyentuh struktur main()
-             -> di luar SCOPE W5b (R8) -> LAPOR ke User/DeepSeek.
+  Bukti    : (SEBELUM FIX) scinel-backend/cmd/api/main_test.go:1-7
+                func TestMainPlaceholder(t *testing.T) {
+                    t.Skip("main function tested via integration tests")
+                }
+             Pola serupa masih ada di internal/service:
+             forecast_service_test.go memakai t.Skip tanpa assertion, dan
+             service_test.go hanya `func TestPlaceholder(t *testing.T) {}`
+             yang kosong — keduanya TIDAK disentuh di W8 (di luar scope, R8).
+  Perbaikan: Placeholder diganti composition test di cmd/api/main_test.go
+             (5 test, tanpa t.Skip, tanpa time.Sleep — deterministik via
+             httptest + miniredis):
+             (1) TestMainComposition_ProtectedRouteWithoutAuthReturns401 —
+                 GET /api/v1/inventory tanpa Authorization -> 401, mux tak
+                 dipanggil.
+             (2) TestMainComposition_PublicRouteWithoutAuthReturns200 —
+                 GET /health tanpa Authorization -> 200, mux dipanggil sekali
+                 (publicPaths auth.go:60).
+             (3) TestMainComposition_AuthRunsBeforeRateLimit — Authorization
+                 "Bearer not-a-valid-jwt" -> 401 dan mr.Keys() TIDAK memuat
+             satu pun prefix "rate_limit:", jadi request yang ditolak auth
+             tidak pernah menyentuh rate limiter ( Auth di luar limiter).
+             (4) TestMainComposition_RateLimitAppliesAfterSuccessfulAuth —
+                 token valid -> 200, mux dipanggil, dan key yang muncul
+                 persis ["rate_limit:user:<uuid>"] + header X-RateLimit-Limit
+                 1000, jadi limiter hanya bisa dikunci user post-auth.
+             (5) TestMainComposition_MiddlewareOrderInMainSource — parse
+                 main.go dengan go/parser lalu flatten rantai handler:
+                 hasil aktual ["CORSMiddleware","SecurityHeaders",
+                 "AuthMiddleware","Apply"] dengan innermost "mux".
+  Verifikasi: `go test ./cmd/api/... -v` -> 5/5 PASS. Bukti test tidak
+             vacuous: urutan Auth/SecurityHeaders di main.go:147-153
+             ditukar sementara, test (5) GAGUR dengan diff persis
+             ("+"AuthMiddleware / "-"SecurityHeaders), lalu main.go
+             dikembalikan `git checkout -- cmd/api/main.go` dan `git status
+             --short` bersih untuk file itu.
+  Sisa yang jujur: Opsi (1) ("ekstrak buildServer dari main()") TIDAK
+             dikerjakan — main.go di luar SCOPE W8 (R8). Konsekuensinya test
+             (1)-(4) menguji salinan rantai yang disusun ulang di test helper
+             newCompositionChain, bukan handler yang di-return main(); yang
+             mengikat keduanya ke kode produksi adalah test (5), yang membaca
+             main.go. Registrasi route dan interval scheduler di main()
+             masih tanpa pagar regresi.
+
 
 [TD-N28] docs/TEST.txt 85% duplikat TEST.md tapi membawa hasil eksekusi W5
   Severity : LOW (baru — ditemukan saat W6 2026-09-27)

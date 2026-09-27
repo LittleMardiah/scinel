@@ -64,7 +64,7 @@
 | DELETE | `/webhooks/subscriptions/{id}` | Unsubscribe | JWT |
 | GET | `/webhooks/deliveries` | Riwayat delivery | JWT |
 
-**Total: 27 routes / 23 endpoint unik**
+**Total: 27 endpoint**
 
 ---
 
