@@ -1,10 +1,10 @@
 ================================================================================
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
-Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26, 2026-09-27 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b, W6)
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER + W6 REPO HYGIENE (GITIGNORE ENCODING / LICENSE / SECURITY / CI ROOT)
-Total entri register: 35 (8 entri lama + 27 TD-N baru)
-TD baru tercatat: 27
+Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26, 2026-09-27 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b, W6, W6.1, W7)
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER + W6 REPO HYGIENE (GITIGNORE ENCODING / LICENSE / SECURITY / CI ROOT) + W6.1+W7 COMMIT CHANGELOG/README, RENAME LICENSE GOLANG-MIGRATE, HAPUS 41 .bak
+Total entri register: 38 (8 entri lama + 30 TD-N baru)
+TD baru tercatat: 30
 Item lama diverifikasi STALE/PARTIAL: 8
 Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
 Item FIXED di W3.1: TD-N17 (Suspense /reset-password)
@@ -35,6 +35,27 @@ Item BARU di W6: TD-N28 (docs/TEST.txt 85% duplikat TEST.md tapi section
              karena GitHub Actions hanya jalan di .github/ root),
              TD-N30 (scinel-backend/LICENSE berisi lisensi golang-migrate tapi
              menempati slot "LICENSE proyek" — harus rename LICENSE.golang-migrate).
+Item FIXED di W6.1 + W7: TD-N30 (scinel-backend/LICENSE -> LICENSE-golang-migrate.txt;
+             isi lisensi MIT golang-migrate DIPERTAHANKAN, tidak dihapus — attribution
+             upstream wajib; root LICENSE + scinel-backend/LICENSE.md kini satu-satunya
+             slot "lisensi proyek").
+Item FIXED di W6.1 + W7: TD-N12 (lapis kedua — 41 file .bak* dihapus dari DISK; W3.2
+             hanya meng-untrack, file tetap di disk sampai W7).
+Item BARU di W7: TD-N31 (hooks/useApi.ts + hooks/useBreakpoint.ts tidak punya
+             consumer produksi — hanya definisi + test),
+             TD-N32 (hooks/useDashboardData.ts fallback MOCK_INVENTORY hardcoded +
+             console.warn di jalur produksi),
+             TD-N33 (scinel-backend/playwright.config.ts untracked di backend —
+             duplikat peran dengan scinel-frontend/playwright.config.ts yang tracked).
+KOREKSI FAKTA di W7: TD-N28. Angka "85% duplikat / 420 dari 424 baris / comm -23 ->
+             14+ baris unik" SALAH ARAH. Verifikasi ulang W7 (CRLF dinormalisasi):
+             316 dari 319 baris unik TEST.txt TIDAK ada di TEST.md; hanya 2 baris
+             yang sama. Duplikasi nyata ~0.6%, bukan 85%. Detail di entri TD-N28.
+CATATAN NOMOR: TD-N20 tidak pernah dipakai dan tidak pernah ada di register ini
+             (lihat baris "Catatan nomor" di bawah). Brief W6.1+W7 memetakan
+             penghapusan 41 .bak ke "TD-N20" — pemetaan itu SALAH; entri .bak
+             yang nyata adalah TD-N12. Tidak ada entri fiktif TD-N20 yang dibuat.
+Catatan nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23,              W4-continue ke 24, W5a ke 25, W5b ke 26-27, W6 ke 28-30,              W6.1+W7 ke 31-33.
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -533,6 +554,129 @@ Referensi cepat:
              untracked-tanpa-ignore = efek langsung NUL tsb. (3) `.bak.`,
              `.bak_`, `.bak[0-9]` sengaja dibiarkan (dead config, tidak match)
              demi tidak menghapus pattern existing — R4.
+  LAPISAN KETIGA (2026-09-27 — W6.1 + W7) — SUDAH FIXED, item ditutup:
+             W3.2 hanya `git rm --cached` sehingga file .bak* TETAP ADA di disk
+             (bukti W3.2: "find . -name '*.bak*' (di luar node_modules) -> 40
+             file, utuh"). Lapisan ini menghapus file tersebut dari disk.
+             Jumlah sebelum: `find . -name "*.bak*" -not -path "*/node_modules/*"
+             | wc -l` -> 41 (semuanya untracked; `git ls-files | grep -c "\.bak"`
+             -> 0, jadi tidak ada data tracked yang hilang).
+             Rincian 41 file: 1 root (.gitignore.bak.corrupt), 20 di
+             scinel-backend/ (main.go.bak_20260904_082855, transaction.go.bak,
+             7 handler *_test.go.bak*, handler_test.go.bak,
+             rate_limit_test.go.bak, 5 repository *_impl.go.bak, 3 service
+             *.go.bak, auth_flow_test.go.bak_20260904_075119), 20 di
+             scinel-frontend/ (2 page.tsx.bak, InventoryTable.tsx.bak,
+             jest.config.js.bak, playwright.config.ts.bak, vitest.config.ts.bak,
+             setup.jest.tsx.bak + 3 varian .bak.178597*, 4 layout.test.tsx.bak*
+             varian, scinel-e2e.spec.ts.bak/.bak2/.bak3/.bak4/.bak6/.bak7/.bak8).
+             Metode: `find . -name "*.bak*" -not -path "*/node_modules/*" -type f
+             -delete` (BUKAN `rm -rf`).
+             Verifikasi: `find . -name "*.bak*" -not -path "*/node_modules/*"
+             | wc -l` -> 0 (sebelumnya 41); `go build ./...` exit 0; `go test
+             ./...` ->              13 paket ok, 0 FAIL; `npx jest --silent` -> 71 suite /
+             113 test PASS. Tidak ada kode yang hilang karena `.bak` adalah salinan
+             lama (main.go.bak_20260904_082855 berumus 2026-09-04, sebelum
+             W2a-W7).
+
+[TD-N31] hooks/useApi.ts dan hooks/useBreakpoint.ts tidak punya consumer produksi
+  Severity : LOW (baru — ditemukan saat W7 2026-09-27)
+  Status   : OPEN
+  Deskripsi: Dua hook di scinel-frontend/hooks/ hanya didefinisikan dan diuji,
+             tidak pernah dipanggil dari komponen/page mana pun. Keduanya tetap
+             "hijau" di laporan test karena punya test file sendiri, jadi
+             cakupannya memberi rasa aman yang tidak mencerminkan pemakaian
+             nyata. useApi.ts pada dasarnya merupakan wrapper fetch yang
+             menduplikasi apa yang sudah dilakukan lib/apiClient (axios +
+             interceptor JWT), sehingga ada risiko dua jalur HTTP berbeda
+             tumbuhistersebut.
+  Bukti    : `grep -rn "useApi" . --include=*.ts --include=*.tsx
+             --exclude-dir=node_modules --exclude-dir=.next` -> hanya
+             ./hooks/useApi.ts:10 (definisi) dan
+             ./tests/hooks/useApi.test.tsx:2,6,26,44,62,78 (test).
+             `grep -rn "useBreakpoint" ...` -> hanya
+             ./hooks/useBreakpoint.ts:4 (definisi) dan
+             ./tests/hooks/useBreakpoint.test.ts:2,5,7 (test).
+             Bandingkan dengan useDashboardData yang MEMANG dipakai produksi:
+             ./app/(protected)/dashboard/page.tsx:3 (import) dan :12 (pemanggilan).
+  Dampak  : rendah. Tidak ada bug — kode tidak pernah dieksekusi sehingga tidak
+             bisa salah. Risikonya maintenance: hook dipelihara + diuji tanpa
+             pernah dipakai, dan test suite memberi kesan coverage yang tidak
+             sebanding dengan pemakaian nyata.
+  Opsi     : (1) hapus kedua hook + test file-nya (paling bersih, tapi hanya
+             mungkin bila User mengotorisasi — perubahan menyentuh 4 file
+             di luar scope W7 -> R8); (2) pasang useApi di halaman yang memang
+             belum pakai apiClient, atau ganti lib/apiClient dengan
+             useApi di seluruh app (terlalu luas); (3) biarkan dan tandai
+             "// unused" di godoc. W7 tidak memilih -> R8.
+
+[TD-N32] useDashboardData memakai MOCK_INVENTORY hardcoded + console.warn di produksi
+  Severity : MEDIUM (baru — ditemukan saat W7 2026-09-27)
+  Status   : OPEN
+  Deskripsi: Hook dashboard yang dipakai produksi memiliki fallback ke data dummy
+             hardcoded ketika GET /inventory membalas 404, dan jalur itu juga
+             menulis console.warn ke browser milik user. Efeknya dashboard
+             menampilkan angka palsu (5 SKU, 3 gudang, 2 low stock, 1 anomaly)
+             seolah-olah data nyata, tanpa indikator visual bahwa itu mock.
+  Bukti    : scinel-frontend/hooks/useDashboardData.ts:4-14 — konstanta
+             MOCK_INVENTORY (total_sku 5, total_warehouse 3, low_stock_count 2,
+             anomaly_count 1, health.status 'online', 1 recent_transaction
+             'txn-1' dengan created_at = new Date() saat modul dimuat,
+             forecast: []);
+             hooks/useDashboardData.ts:24 — `apiClient.get('/inventory?limit=1')`;
+             :27-29 — `if (err.response?.status === 404) { console.warn('⚠️
+             [DEBUG] Endpoint /inventory 404, using mock data.'); setData(
+             MOCK_INVENTORY); }`;
+             dipakai produksi di app/(protected)/dashboard/page.tsx:3,12.
+  Dampak  : MEDIUM, bukan LOW, karena berbeda dengan TD-N31. Hook ini benar-benar
+             berjalan di dashboard: kalau endpoint 404 (mis. backend belum
+             termigrasi / prefix API berubah), user melihat metrik yang terisi
+             padahal palsu — lebih buruk dari error yang jujur. console.warn
+             dengan label "[DEBUG] juga menyesatkan saat sampai ke user.
+  Opsi     : (1) hapus MOCK_INVENTORY dan biarkan error state tampil apa adanya
+             (paling jujur, tapi menyentuh file produksi di luar scope W7 -> R8);
+             (2) pertahankan fallback tetapi tandai di UI "Data contoh / belum
+             terhubung ke backend" (per menyentuh komponen dashboard);
+             (3) guard dengan env flag NEXT_PUBLIC_ENABLE_MOCK. W7 tidak
+             memilih -> R8.
+  Catatan : `recent_transactions[0].created_at` memakai `new Date().toISOString()`
+             yang dievaluasi SEKALI saat modul diimpor (bukan per-render), jadi
+             mock ini bisa menampilkan timestamp stale setelah halaman lama
+             dibuka — gejala tambahan bahwa fallback ini bukan mock yang
+             andal.
+
+[TD-N33] scinel-backend/playwright.config.ts untracked & stale (baseURL 3001)
+  Severity : LOW (baru — ditemukan saat W7 2026-09-27 lewat `git status --short`)
+  Status   : OPEN
+  Deskripsi: Ada salinan konfigurasi Playwright di backend yang tidak pernah
+             dilacak git dan masih memakai baseURL lama 3001 — justru port yang
+             sudah diperbaiki sebagai bug di W3 (bagian A item 1). Config yang
+             benar dan tracked ada di scinel-frontend/playwright.config.ts.
+             Selain membingungkan, file ini mudah "ditemukan" oleh editor/
+             tooling dan dipakai untuk menjalankan E2E dari direktori yang salah
+             sehingga gagal dengan 404 diam-diam.
+  Bukti    : `git status --short scinel-backend/playwright.config.ts` -> `??`
+             (untracked, bukan di-ignore: `git check-ignore` tidak match);
+             `head -20 scinel-backend/playwright.config.ts` -> testDir
+             './tests/e2e', reporter 'html', baseURL pada baris 11;
+             `diff scinel-backend/playwright.config.ts
+             scinel-frontend/playwright.config.ts` -> HANYA 1 baris beda:
+             `11c11 < baseURL: 'http://localhost:3001' --- > baseURL:
+             'http://localhost:3000'`;
+             `git ls-files scinel-frontend/playwright.config.ts` -> tracked.
+             Bandingkan bagian A item 1 (A.1 FIXED 2026-09-26 — W3): baseURL
+             backend yang disalin masih 3001 berarti regresi belum benar-benar
+             tertutup di semua salinan.
+  Dampak  : rendah untuk CI (yang jalan memakai file frontend), tapi nyata
+             untuk developer lokal yang menjalankan E2E dari folder backend.
+  Opsi     : (1) hapus salinan di backend (file untracked, tidak ada data tracked
+             yang hilang — tapi penghapusan file di luar SCOPE W7 -> R8, mohon
+             otorisasi); (2) untrack + pindahkan ke docs/ sebagai catatan;
+             (3) biarkan tapi tambahkan komentar penegas. W7 tidak memilih -> R8.
+  Catatan : file ini BUKAN salah satu dari 41 .bak* yang dihapus di W7 — namanya
+             `playwright.config.ts`, tidak mengandung `.bak`, dan tidak
+             terpengaruh `find . -name "*.bak*" -delete`. Bukti tambahan:
+             `git status --short` masih menampilkannya sebagai `??`.
 
 [TD-N13] WebhookPublisher.ProcessDeliveries tidak pernah dipanggil
   Severity : HIGH
@@ -1036,31 +1180,66 @@ Referensi cepat:
 [TD-N28] docs/TEST.txt 85% duplikat TEST.md tapi membawa hasil eksekusi W5
   Severity : LOW (baru — ditemukan saat W6 2026-09-27)
   Status   : OPEN (kondisional — TIDAK di-untrack di W6, perlu keputusan merge)
-  Deskripsi: docs/TEST.txt (18127 byte, 424 baris) adalah versi plain-text dari
-             docs/TEST.md (60114 byte, 2044 baris). 420 dari 424 baris non-kosong
-             TEST.txt muncul verbatim di TEST.md, jadi ~85% isinya duplikat.
-             Tapi bagian yang TIDAK ada di TEST.md adalah hasil eksekusi W5:
-             section "5. TEST EXECUTION CHECKLIST (Week 9)" dan "6. FINAL SUMMARY"
-             memuat angka hasil nyata ("TOTAL: 246 unit test cases, coverage >90%",
-             "TOTAL: 311 unit test cases, coverage >50%",
-             "TOTAL: 557+ unit test cases + 99+ integration/E2E",
-             "Auth service (36 cases) -> PASS", dan seterusnya).
-             Syarat untrack di W6 ("tracked DAN redundant dengan TEST.md") TIDAK
-             terpenuhi karena data unik itu akan hilang dari tracking.
-  Bukti    : `comm -23 <(sort -u docs/TEST.txt) <(sort -u docs/TEST.md)` ->
-             14+ baris unik, semuanya angka hasil eksekusi W5;
-             `git diff --numstat docs/TEST.txt` -> 423/423 (CRLF saja);
-             `diff <(git show HEAD:docs/TEST.txt | tr -d '\r') <(tr -d '\r' < docs/TEST.txt)`
-             -> IDENTICAL, jadi tidak ada kerja W5 yang belum ter-commit di file ini;
+  Deskripsi: docs/TEST.txt (18127 byte) adalah versi plain-text v2.0 dari test plan
+             yang sama dengan docs/TEST.md (60114 byte, 2044 baris, versi 1.0).
+  Bukti    : [W6, SEBAGIAN SALAH — dikoreksi W7 2026-09-27]
+             `comm -23 <(sort -u docs/TEST.txt) <(sort -u docs/TEST.md)` ->
+             14+ baris unik;
              header docs/TEST.txt:1-6 "COMPREHENSIVE TEST PLAN - ScIntel
              Platform v2.0 ... Author: M. Arif Aulia (Based on ROADMAP 1-4)".
-  Dampak  : rendah. File tetap tracked, jadi tidak ada data hilang. Yang tersisa
-             hanya duplikasi ~85% yang membingungkan pembaca (dua test plan).
+  KOREKSI W7 (2026-09-27) — angka W6 TERBALIK:
+             Diklaim: "420 dari 424 baris non-kosong TEST.txt duplikat (~85%)".
+             Kenyataan: file ini 423 baris (350 non-blank), 319 baris unik.
+             Setelah CRLF dinormalisasi (`tr -d '\r'`, karena `file docs/TEST.txt`
+             -> "with CRLF line terminators" sementara TEST.md -> LF; itu sebab
+             `comm` tanpa normalisasi melaporkan 320 dan yang ternormalisasi
+             316, keduanya SALAH ARAH):
+               comm -23 <(sort -u TEST.txt) <(sort -u TEST.md) | wc -l -> 316
+               -> 316 dari 319 baris unik TEST.txt TIDAK ADA di TEST.md.
+               comm -12 <(baris non-blank unik TEST.txt) <(sort -u TEST.md)
+               | wc -l -> 2
+               -> hanya 2 baris non-blank TEST.txt yang benar-benar muncul
+                  di TEST.md.
+             Jadi duplikasi nyata ~0.6% (2/319), BUKAN 85%. Klaim "14+ baris
+             unik" juga salah: yang unik justru 316 baris.
+  Bukti 2026-09-27 (W7, terverifikasi ulang):
+             `wc -l docs/TEST.txt` -> 423; `wc -l docs/TEST.md` -> 2044;
+             `grep -c "[^[:space:]]" docs/TEST.txt` -> 350;
+             `file docs/TEST.txt` -> "Unicode text, UTF-8 text, with CRLF line
+             terminators"; `file docs/TEST.md` -> "Unicode text, UTF-8 text";
+             `git ls-files --error-unmatch docs/TEST.txt` -> TRACKED;
+             `git diff --numstat docs/TEST.txt` -> 423/423 (seluruhnya CRLF);
+             `grep -n "TEST EXECUTION CHECKLIST\|FINAL SUMMARY" TEST.txt` ->
+             baris 350 "5. TEST EXECUTION CHECKLIST (Week 9)" dan baris 398
+             "6. FINAL SUMMARY" — keduanya memang tidak ada di TEST.md.
+             TEST.md:1-4 = "# COMPREHENSIVE TEST PLAN - ScIntel Platform /
+             Supply Chain Intelligence Platform Testing Strategy / Status: Ready
+             for Implementation / Version: 1.0" (Markdown + emoji + tabel),
+             sedangkan TEST.txt header-nya "Version : 2.0" dan memakai penomoran
+             "1." / "2." / ... / "6." plus blok hasil eksekusi.
+  Dampak  : REVISI. Karena duplikasi nyaris nol, opsi (1) lama ("merge section
+             5-6 ke TEST.md lalu untrack TEST.txt") BERBAHAYA: ia membuang
+             316 baris isi test plan yang tidak ada di TEST.md, bukan cuma blok
+             hasil eksekusi. TEST.txt bukan "duplikat yang bisa dibuang" melainkan
+             dokumen VERSI BERBEDA (v2.0 hasil eksekusi vs v1.0 rencana).
+             Dampak tetap LOW untuk repo (tidak ada kode yang tersentuh, tidak
+             ada data hilang selama file tetap tracked), tetapi keputusan merge
+             yang salah akan menghapus 316 baris.
   Opsi     : (1) merge section 5-6 dari TEST.txt ke TEST.md lalu untrack TEST.txt
-             (paling bersih, tapi menyentuh isi TEST.md -> perlu approval);
+             (TIDAK Disarankan — lihat Dampak revisi);
              (2) rename TEST.txt jadi docs/TEST EXECUTION RESULTS.txt supaya
-             perannya jelas tanpa kehilangan data; (3) biarkan duplikasi.
-             W6 tidak memilih salah satu -> R8 (di luar scope merge dokumen).
+             perannya jelas tanpa kehilangan data (kandidat terbaik);
+             (3) biarkan duplikasi (status quo) — koreksi hanya pada angka.
+             W6/W7 TIDAK memilih -> R8 (di luar scope merge dokumen).
+  Catatan : hasil eksekusi yang HANYA ada di TEST.txt (verifikasi W7) antara
+             lain "TOTAL: 246 unit test cases, coverage >90%", "TOTAL: 311 unit
+             test cases, coverage >50%", "TOTAL: 557+ unit test cases + 99+
+             integration/E2E", "Auth service (36 cases) -> PASS", "Hooks (57)
+             -> PASS", "Webhooks (31) -> PASS", "k6 load test -> p99 <100ms,
+             1000 users", "Lighthouse -> >90 all metrics". Angka-angka ini
+             TIDAK cocok dengan hasil W6/W7 (backend `go test ./...` 13 paket;
+             frontend 71 suite / 113 test), jadi TEST.txt merepresentasikan
+             keadaan lebih lama dan perlu label versi/tanggal saat di-follow up.
 
 [TD-N29] Workflow CI backend tidak pernah jalan + go-version 1.21 vs go.mod 1.25.0
   Severity : MEDIUM (baru — ditemukan saat W6 2026-09-27)
@@ -1090,7 +1269,7 @@ Referensi cepat:
 
 [TD-N30] scinel-backend/LICENSE berisi lisensi golang-migrate, bukan lisensi proyek
   Severity : LOW (baru — ditemukan saat W6 2026-09-27)
-  Status   : OPEN (diabaikan di W6 — instruksi bilang "biarkan sebagai source of truth")
+  Status   : FIXED (2026-09-27 — W6.1 + W7) — Opsi (1) "rename" dijalankan
   Deskripsi: Setelah W6 ada tiga file lisensi: LICENSE (root, MIT © 2026 M. Arif
              Aulia), scinel-backend/LICENSE.md (MIT © 2026 M. Arif Aulia, identik
              dengan root), dan scinel-backend/LICENSE (MIT © 2016 Matthias
@@ -1113,3 +1292,24 @@ Referensi cepat:
              THIRD_PARTY_NOTICES) sesuai konvensi lisensi dependensi; (2) hapus
              karena go.mod sudah menunjuk dependensi; (3) biarkan. W6 tidak
              menyentuh file ini -> R8.
+  Perbaikan: Opsi (1) — file di-rename menjadi
+             scinel-backend/LICENSE-golang-migrate.txt. ISI TIDAK DIUBAH SAMA
+             SEKALI (attribution upstream golang-migrate wajib dipertahankan,
+             bukan dihapus): 1219 byte, 28 baris, md5 tetap
+             f86738511a3464eff569480240d68dc5.
+  Catatan : `git mv` GAGAL karena file itu UNTRACKED ("fatal: not under version
+             control, source=scinel-backend/LICENSE"), jadi rename dilakukan
+             dengan `mv` — secara efek identik untuk file untracked, dan file ini
+             tetap untracked setelah rename (`??`).
+             Nama akhir memakai sufiks `.txt` (bukan `LICENSE.golang-migrate`
+             seperti usulan Opsi 1) karena proyek ini sudah memakai konvensi
+             `LICENSE.md` untuk lisensi proyek — nama polos `LICENSE*` akan
+             ditafsirkan sebagai lisensi proyek oleh tool otomatis.
+  Verifikasi 2026-09-27: `ls scinel-backend/LICENSE-golang-migrate.txt` -> ada
+             (1219 byte); `ls scinel-backend/LICENSE` -> "No such file or
+             directory"; md5sum -> f86738511a3464eff569480240d68dc5 (tidak
+             berubah); `ls scinel-backend/LICENSE*` -> LICENSE-golang-migrate.txt
+             + LICENSE.md (dua file, peran terpisah, tidak tumpang tindih lagi);
+             `go build ./...` exit 0 dan `go test ./...` 13 paket ok (file lisensi
+             tidak memengaruhi build, tapi dicek agar tidak ada import/embed yang
+             rusak).

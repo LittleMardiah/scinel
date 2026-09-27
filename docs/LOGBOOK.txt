@@ -2903,3 +2903,182 @@ STATUS: V1-V9 PASS. TD-N7 -> FIXED (2026-09-27, W6). TD-N8 -> FIXED
   (2026-09-27, W6). TD-N28 (LOW) + TD-N29 (MEDIUM, PARTIAL) + TD-N30 (LOW)
   baru OPEN. Total entri register: 35 (8 entri lama + 27 TD-N baru).
   Menunggu User commit via PowerShell.
+
+2026-09-27 - W6.1 + W7: Commit CHANGELOG/README, rename LICENSE golang-migrate, hapus 41 .bak
+--------------------------------------------------------------------------------
+TASK:
+  1. S1 - scinel-backend/LICENSE di-rename jadi LICENSE-golang-migrate.txt (isi
+     TIDAK dihapus; attribution upstream golang-migrate wajib).
+  2. S2 - hapus 41 file .bak* (TD-N20 menurut brief; sebenarnya TD-N12).
+  3. S3 - git add CHANGELOG.md + README.md (keduanya untracked, bukan hasil W6).
+  4. V1-V8 verifikasi + AUTO LOG (TECHNICAL_DEBT.txt, LOGBOOK.txt).
+  Scope: docs root + 1 rename lisensi + penghapusan .bak. TIDAK ada kode produksi
+  (Go/TSX) yang disentuh, TIDAK ada commit/push, TIDAK ada rm -rf.
+
+CEK DULU (WAJIB, file:line) - 5 dari 5 cek bersih, tidak ada template/junk.
+  (Tiga premis yang ternyata SALAH bukan dari 5 cek ini, tapi dari bagian
+  AUTO LOG — lihat blok DEVIASI 1, 2, dan 3.)
+  1. CHANGELOG.md (2913 byte, 48 baris) VALID. Format Keep a Changelog sesuai
+     klaim: baris 5-6 mendeklarasikan "Format mengikuti Keep a Changelog /
+     versioning mengikuti Semantic Versioning", lalu blok `## [v1.0.0] — 2026-09-05`
+     (baris 8) dengan sub-headings Added / Changed / Fixed / Security (baris
+     12,36,40,45). Isi proyek nyata (Auth & RBAC, Inventory, Forecasting,
+     Anomaly, Webhooks, API Keys, Rate Limiting, 12 tabel via golang-migrate,
+     23 endpoint, 71 test suite). BUKAN template.
+  2. README.md (6256 byte, 157 baris) VALID. Ini dokumentasi ScIntel asli
+     (judul baris 1, badge Go/Next.js/PostgreSQL/Redis baris 5-9, tabel Fitur
+     Utama baris 15-23, diagram arsitektur ASCII baris 32-44, Quick Start
+     baris 46-94, Performance Metrics baris 96-105, Tech Stack baris 138-153).
+     BUKAN template create-next-app / gofmt boilerplate.
+  3. head -5 scinel-backend/LICENSE -> "The MIT License (MIT) / Original Work /
+     Copyright (c) 2016 Matthias Kadenbach / https://github.com/mattes/migrate".
+     Full file (28 baris) juga memuat "Modified Work / Copyright (c) 2018 Dale
+     Hui / https://github.com/golang-migrate/migrate". KONFIRMASI: lisensi
+     golang-migrate. Total 28 baris, 1219 byte.
+  4. `find . -name "*.bak*" -not -path "*/node_modules/*" | wc -l` -> 41. CONFIRM.
+     Rincian: 1 root + 20 scinel-backend + 20 scinel-frontend.
+  5. `git ls-files | grep -c "\.bak"` -> 0. CONFIRM: 41 file semuanya untracked
+     (terdaftar sebagai `??` sebelum dihapus, TIDAK PERNAH di-track), jadi tidak
+     ada data versioned yang hilang saat dihapus.
+
+EKSEKUSI:
+  S1 (RENAME):
+    `git mv scinel-backend/LICENSE scinel-backend/LICENSE-golang-migrate.txt`
+    -> GAGAL: "fatal: not under version control, source=scinel-backend/LICENSE,
+    destination=scinel-backend/LICENSE-golang-migrate.txt" (exit 128).
+    ROOT CAUSE: `git status --short` menunjukkan `?? scinel-backend/LICENSE` —
+    file itu UNTRACKED (bukan hasil W6, sudah untracked sejak awal), sedangkan
+    `git mv` hanya bisa dipakai pada path yang sudah di-track.
+    FIX: `mv scinel-backend/LICENSE scinel-backend/LICENSE-golang-migrate.txt`
+    -> "MV OK". Untuk file untracked, `mv` memberi hasil yang identik dengan
+    `git mv` (nama berubah, isi tidak tersentuh, status tetap `??`).
+    ISI TIDAK DIUBAH SAMA SEKALI — ini syarat eksplisit brief ("JANGAN hapus,
+    attribution upstream wajib") dan sekaligus R4: menghapus lisensi pihak ketiga
+    adalah pelanggaran lisensi, bukan sekadar bersih-bersih.
+    Temuan tambahan: ada `scinel-backend/LICENSE.md` (1070 byte, lisensi
+    proyek MIT) yang sudah ada terpisah, sehingga setelah rename tidak ada lagi
+    dua file bernama `LICENSE*` yang akan ditafsirkan sebagai lisensi proyek.
+  S2 (HAPUS 41 .bak):
+    `find . -name "*.bak*" -not -path "*/node_modules/*" -type f -delete`
+    -> EXIT=0. Verify: `find . -name "*.bak*" -not -path "*/node_modules/*"
+    | wc -l` -> 0. TIDAK memakai `rm -rf` (dilarang brief + R4).
+    Semua file adalah salinan lama bertanggal (mis.
+    main.go.bak_20260904_082855 = 2026-09-04, sebelum W2a-W7), sehingga tidak
+    ada pekerjaan yang belum tercermin di file aktif.
+  S3 (STAGE):
+    `git add CHANGELOG.md README.md` -> "ADD OK". Keduanya untracked sebelum
+    ini (`??`), sekarang `A`. TIDAK ada `git add -A` dan tidak ada file lain
+    yang ikut ter-stage.
+
+VERIFIKASI (SEMUA PASS):
+  V1 `ls scinel-backend/LICENSE-golang-migrate.txt` -> ada, 1219 byte, mtime
+     Dec 21 2023 (mtime asli tidak berubah = hanya nama yang berubah).
+  V2 `ls scinel-backend/LICENSE` -> "ls: cannot access 'scinel-backend/LICENSE':
+     No such file or directory" (NOT FOUND). PASS.
+  V3 `find . -name "*.bak*" -not -path "*/node_modules/*" | wc -l` -> 0. PASS.
+  V4 `ls -la CHANGELOG.md README.md` -> keduanya ada (2913 / 6256 byte). PASS.
+  V5 `cd scinel-backend && go build ./...` -> BUILD EXIT=0. PASS.
+  V6 `cd scinel-backend && go test ./...` -> TEST EXIT=0, 13 paket ok +
+     1 tanpa test file (scripts), 0 FAIL. PASS.
+  V7 `cd scinel-frontend && npx jest --silent` -> "Test Suites: 71 passed, 71
+     total / Tests: 113 passed, 113 total", JEST EXIT=0, 156.674s. PASS (71/71).
+  V8 `git status --short` -> `A  CHANGELOG.md`, `A  README.md`,
+     ` M docs/TEST.txt`, `?? scinel-backend/LICENSE-golang-migrate.txt`,
+     `?? scinel-backend/playwright.config.ts`.
+
+DEVIASI DARI SPESIFIKASI TASK (semua berbasis bukti, semua dilaporkan):
+  1. "TD-N20 -> FIXED" untuk penghapusan 41 .bak. TD-N20 TIDAK PERNAH ADA.
+     TECHNICAL_DEBT.txt:26 (sebelum edit W7) menyatakan eksplisit: "Catatan
+     nomor: TD-N18/N19/N20 tidak pernah dipakai; penomoran W4 lanjut ke 21-23,
+     W4-continue ke 24, W5a ke 25, W5b ke 26-27, W6 ke 28-30." Entri .bak yang
+     nyata adalah TD-N12 (FIXED 2026-09-26, W3.2 + W3.2-lanjutan) — yaitu
+     untrack 25 file .bak dari index, dengan file TETAP ada di disk.
+     Tindakan: tidak dibuat entri fiktif TD-N20 (R3 — jangan klaim item yang
+     tidak ada); penghapusan 41 file dari DISK dicatat sebagai "LAPISAN KETIGA"
+     di entri TD-N12 yang sudah ada, plus catatan di header register.
+  2. Nomor TD-N28/N29/N30 yang diminta untuk item BARU sudah TERPAKAI
+     di W6 dengan isi yang berbeda:
+       - TD-N28 (W6) = docs/TEST.txt duplikat TEST.md  [tema sama, tapi ANGKA
+         salah — lihat deviasi 3]
+       - TD-N29 (W6, MEDIUM, PARTIAL) = scinel-backend/.github/workflows/ci.yml
+         mati + go-version 1.21 vs go.mod 1.25.0
+       - TD-N30 (W6, LOW) = scinel-backend/LICENSE berisi lisensi golang-migrate
+     Tindakan: tiga item baru diberi nomor BERIKUTNYA, yaitu TD-N31 (hooks
+     useApi/useBreakpoint tanpa consumer produksi, LOW), TD-N32
+     (useDashboardData MOCK_INVENTORY + console.warn, MEDIUM), dan TD-N33
+     (scinel-backend/playwright.config.ts untracked & stale baseURL 3001, LOW —
+     ditemukan sendiri lewat `git status --short`, di luar daftar brief).
+     TD-N30 yang lama justru DIPERBARUI jadi FIXED karena rename di S1
+     persis menutup item itu.
+  3. KOREKSI FAKTA pada TD-N28 (angka W6 terbalik arah). Brief juga mengulang
+     klaim yang sama ("duplikasi 420/424 baris dengan TEST.md"), jadi ini
+     diverifikasi ulang dari nol sebelum diterima/ditolak:
+       - Klaim W6: "420 dari 424 baris non-kosong duplikat" + "comm -23 ->
+         14+ baris unik" + "~85% isinya duplikat".
+       - Kenyataan: `wc -l docs/TEST.txt` -> 423 baris (bukan 424);
+         `grep -c "[^[:space:]]" docs/TEST.txt` -> 350 non-blank; 319 baris unik.
+       - `comm -23 <(sort -u TEST.txt) <(sort -u TEST.md) | wc -l` -> 320.
+       - Angka itu mencurigakan, karena `file docs/TEST.txt` -> "with CRLF
+         line terminators" sementara TEST.md -> LF. Setelah dinormalisasi
+         (`tr -d '\r'`): `comm -23` -> 316, dan `comm -12` antara baris non-blank
+         unik TEST.txt dengan TEST.md -> 2.
+       - KESIMPULAN: 316 dari 319 baris unik TEST.txt TIDAK ADA di TEST.md.
+         Duplikasi nyata ~0.6% (2/319), BUKAN 85%. Arahnya terbalik total.
+       - Konsekuensi yang DIBATASI: opsi lama "(1) merge section 5-6 ke TEST.md
+         lalu untrack TEST.txt" akan membuang 316 baris isi test plan, bukan
+         cuma blok hasil eksekusi. Entri TD-N28 ditulis ulang dengan angka
+         terverifikasi + opsi (1) ditandai TIDAK disarankan. Opsi (2) rename
+         jadi docs/TEST EXECUTION RESULTS.txt jadi kandidat terbaik.
+       - Yang benar dari brief: TEST.txt memang TRACKED
+         (`git ls-files --error-unmatch docs/TEST.txt` -> TRACKED) dan section
+         "5. TEST EXECUTION CHECKLIST (Week 9)" (TEST.txt:350) + "6. FINAL
+         SUMMARY" (TEST.txt:398) memang tidak ada di TEST.md.
+  4. `git mv` tidak bisa dipakai (lihat EKSEKUSI S1). Penyimpangan prosedural,
+     bukan hasil: efek akhir file identik.
+  5. Nama akhir memakai sufiks `.txt` (LICENSE-golang-migrate.txt), mengikuti
+     perintah brief, bukan usulan Opsi (1) lama di TD-N30 yang menyebut
+     `LICENSE.golang-migrate`. Alasan: repo ini sudah memakai `LICENSE.md` untuk
+     lisensi proyek, jadi nama polos `LICENSE*` tetap ditafsirkan tool otomatis
+     sebagai lisensi proyek. Brief menang, dan alasannya konsisten.
+
+RISIKO / CATATAN:
+  - 41 file .bak dihapus permanen dari disk. Tidak ada yang tracked (CEK 5),
+    jadi `git checkout` tidak bisa memulihkannya. Kalau ternyata ada
+    pengetahuan yang masih dibutuhkan, isinya sudah lapuk (bertanggal
+    <= 2026-09-04) dan versi aktifnya ada di file non-.bak.
+  - `scinel-backend/playwright.config.ts` (untracked, baseURL 3001) TIDAK ikut
+    terhapus — namanya tidak mengandung `.bak`. Dicatat sebagai TD-N33; tidak
+    dihapus karena di luar scope brief (R8) meski hapus file untracked berisiko
+    rendah.
+  - `docs/TEST.txt` tetap ` M` (modified) — perubahan itu dari W6 (normalisasi
+    CRLF), BUKAN dari W6.1/W7. File ini tidak disentuh di sesi ini.
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test baru,
+    tidak ada --no-verify/--force, tidak ada commit, tidak ada push.
+    Tidak ada kode produksi (Go/TSX) yang disentuh.
+
+LEARNING CHECKPOINT:
+  - Root cause (1): prompt asumsi `git mv` universal, padahal `git mv` hanya
+    berlaku untuk path yang sudah di-track. Pelajaran: cek `git status --short`
+    per-file SEBELUM menentukan metode. Untuk file untracked, `mv` benar dan
+    aman; `git mv` bukan.
+  - Root cause (2): register TD menumpuk nomor yang sudah terpakai tanpa
+    penanda di header. Pelajaran: sebelum memberi nomor TD baru, WAJIB baca
+    header register — baris "Catatan nomor" di TECHNICAL_DEBT.txt yang
+    dirancang justru untuk mencegah ini, dan diabaikan oleh brief.
+  - Root cause (3): klaim "85% duplikat" bertahan dari W6 ke W7 karena
+    diulang, bukan karena diuji. Pelajaran: setiap angka yang diwariskan dari
+    prompt/entri lama harus dihitung ulang, terutama bila menyangkut perbandingan
+    antar file dengan encoding berbeda (CRLF vs LF membuat `comm` melaporkan
+    SELURUH baris berbeda — di sini mengarah ke kesimpulan terbalik).
+  - Lesson: "duplikasi" itu mudah disalahpahami kalau diukur tanpa normalisasi
+    encoding. TEST.txt adalah dokumen VERSI BERBEDA (v2.0 hasil eksekusi) dari
+    TEST.md (v1.0 rencana), bukan salinan yang bisa dibuang.
+  - Lesson: mengganti nama file lisensi pihak ketiga BUKAN penghapusan. Isi
+    wajib utuh (md5 f86738511a3464eff569480240d68dc5 sebelum = sesudah); yang
+    diubah hanya nama agar tidak menyamar sebagai lisensi proyek.
+
+STATUS: V1-V8 PASS. TD-N30 -> FIXED (2026-09-27, W6.1 + W7). TD-N12 ->
+  LAPISAN KETIGA FIXED (41 file .bak dihapus dari disk). TD-N28 -> data
+  dikoreksi (angka duplikasi terbalik). TD-N31 (LOW) + TD-N32 (MEDIUM) +
+  TD-N33 (LOW) baru OPEN. Total entri register: 38 (8 entri lama + 30 TD-N
+  baru). Menunggu User commit via PowerShell.
