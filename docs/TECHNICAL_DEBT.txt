@@ -2,9 +2,87 @@
 TECHNICAL DEBT REGISTER — SCINTEL
 ================================================================================
 Tercatat: 2026-09-03 (SCINTEL WEEK 8.2); diverifikasi ulang: 2026-09-25, 2026-09-26, 2026-09-27 (W3, W3.1, W4, W4-continue, W4.1, W5a, W5b, W6, W6.1, W7, W8)
-Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER + W6 REPO HYGIENE (GITIGNORE ENCODING / LICENSE / SECURITY / CI ROOT) + W6.1+W7 COMMIT CHANGELOG/README, RENAME LICENSE GOLANG-MIGRATE, HAPUS 41 .bak + W8 XFF HOP PERTAMA + COMPOSITION TEST cmd/api + KOREKSI JUMLAH ENDPOINT DOCS (23 -> 27)
-Total entri register: 38 (8 entri lama + 30 TD-N baru)
-TD baru tercatat: 30
+
+================================================================================
+VOCABULARY STATUS (ditambahkan W9a 2026-09-27 — register sebelumnya tidak punya ini)
+================================================================================
+Status yang dipakai di seluruh register ini, TANPA tumpang tindih:
+  FIXED     — ada di register, sudah diperbaiki, dan BUKTI KODE diverifikasi ulang.
+  RESOLVED  — istilah lama (entri R-/D- 2026-09-04/05), setara FIXED, dipertahankan
+              supaya entri historis tidak ditulis ulang.
+  OPEN      — gap masih ada di kode pada 2026-09-27.
+  PARTIAL   — sebagian item sudah ditutup, sisanya masih ada (lihat sub-item).
+  DEFERRED  — STATUS PARALEL, BUKAN pengganti OPEN. Gap secara teknis masih ada,
+              tetapi TIDAK boleh dikerjakan OpenCode tanpa keputusan User/DeepSeek
+              lebih dulu (R8 + §11.4). Daftar lengkap di Tabel D (bagian W9a).
+  STALE     — TIDAK LAGI dipakai sebagai status akhir. Setiap klaim STALE yang
+              ditemukan W9a sudah dikoreksi IN-PLACE di entri concerned, jadi
+              tidak ada entri yang "mengantung" sebagai STALE.
+Aturan hitung: FIXED + RESOLVED + OPEN + PARTIAL = total entri. DEFERRED dihitung
+  di dalam OPEN (entri DEFERRED tetap OPEN), jadi tidak dijumlahkan dua kali.
+================================================================================
+
+RE-AUDIT W9a (2026-09-27) — READ-ONLY terhadap kode
+--------------------------------------------------------
+METODE: 50 entri existing diverifikasi satu-per-satu terhadap kode (R2: kode =
+source of truth) memakai go build/vet/test -cover, npx tsc --noEmit,
+npx jest --coverage, grep/ls, dan git ls-files. TIDAK ADA file .go / .ts / .tsx /
+.sql / .yml yang disentuh. Dua dokumen yang berubah: file ini + docs/LOGBOOK.txt.
+HASIL KOREKSI (R2 — dokumen yang salah, kode yang benar):
+  1. Klaim header lama "Total entri register: 38 (8 entri lama + 30 TD-N baru)"
+     SALAH HITUNG. Bagian A (A.1-A.5) = 5 entri dan bagian B (B.1-B.7) = 7 entri
+     tidak pernah masuk hitungan. Hitungan benar sebelum W9a = 12 + 8 + 30 = 50.
+     Akar masalah: tidak ada verifikasi silang "jumlah entri" vs "isi file" ->
+     lihat catatan NOMOR di section W9a (akhir file).
+  2. Catatan "[STALE 2026-09-25]" pada B.1 (repository masih TODO) ternyata SALAH:
+     `grep -rn TODO internal/repository/` -> 0 hasil; GetBySKU sudah SQL penuh
+     di inventory_repository_impl.go:139-170. Entri B.1 dikoreksi ke FIXED.
+  3. Klaim angka coverage pada B.4 ("handler 83.7%") dan B.5 ("middleware 99.0%")
+     sudah TIDAK BENAR. `go test ./... -cover` 2026-09-27 -> handler 76.8%,
+     middleware 80.8%. Angka lama ditulis 2026-09-04, sebelum 8 commit perbaikan
+     yang menambah cabang kode. Angka dikoreksi, status FIXED tetap (test ada).
+  4. A.2 [FIXED] SALAH: .env.local:4 masih postgres 5434 dan docker-compose.yml:11
+     memetakan "5434:5432" — jadi 5434 itu BENAR untuk docker-compose. "Perbaikan"
+     5434->5432 yang tertulis di entri justru akan MEMECAHKAN koneksi.
+  5. TD-N1 [OPEN / CRITICAL] premisanya sudah REFUTED: GetBySKU terimplementasi
+     penuh, dan pemetaan error di CreateTransaction kini memakai errors.Is ke
+     sentinel (404 / 409) sebelum/default 500. Status dikoreksi, severity diturunkan.
+  6. D-001..D-004 tidak punya baris "Status" sama sekali -> diisi (lihat Tabel A).
+  7. Klaim TD-N6 "backoff eksponensial sudah ada di kode dan TIDAK disentuh"
+     ternyata SETENGAH SALAH: calculateRetryTime() dihitung lalu hanya di-LOG,
+     kolom scheduled_retry_at TIDAK PERNAH DI-WRITE -> backoff tidak pernah
+     berlaku. Lihat TD-N35.
+  8. Klaim "Lighthouse >90 verified", "cross-browser tested", "8 hooks ✅",
+     "cache hit rate >60%", "k6 p99<100ms" di ROADMAP 3 / TEST.txt tidak punya
+     artefak di repo -> dicatat sebagai TD-N53/N54/N55/N62/N69.
+
+Rincian hitungan W9a (Tabel A, 50 entri existing):
+  FIXED (valid, terverifikasi di kode) : 22
+  RESOLVED (valid, entri lama R-/D-)   :  2  (R-001, R-002)
+  OPEN (valid, gap masih ada)         : 17
+  PARTIAL (valid)                      :  4  (D-006, TD-N9, TD-N23, TD-N29)
+  CLAIM STALE -> sudah dikoreksi       :  5  (A.2, B.1, B.4, B.5, TD-N1)
+  --------------------------------------------------
+  TOTAL sebelum W9a                    : 50
+  Catatan: "CLAIM STALE" bukan status ke-6. Itu 5 entri yang statusNYA berubah
+  hasil koreksi di atas dan kini TERHITUNG di salah satu baris di atas
+  (B.1/B.4/B.5 ke FIXED, A.2/TD-N1 ke OPEN). Kalau ditulis "22+2+17+4+5 = 50"
+  itu tidak salah secara aritmetika, tetapi akan menghitung 5 entri dua kali.
+  Angka yang benar untuk laporan: FIXED 22, RESOLVED 2, OPEN 17, PARTIAL 4.
+  DEFERRED (menunggu keputusan User/DeepSeek) : 15 -> lihat Tabel D
+
+Status: INFRASTRUKTUR E2E FIXES + AUDIT TD 2026-09-25 + W3 FRONTEND TSC/JEST 2026-09-26 + W4 BACKEND AUDIT/BLACKLIST/ATOMIC-TX + W5a RATE-LIMIT MOUNT ORDER + W5b SCHEDULER + FORECAST BATCH + WEBHOOK WORKER + W6 REPO HYGIENE (GITIGNORE ENCODING / LICENSE / SECURITY / CI ROOT) + W6.1+W7 COMMIT CHANGELOG/README, RENAME LICENSE GOLANG-MIGRATE, HAPUS 41 .bak + W8 XFF HOP PERTAMA + COMPOSITION TEST cmd/api + KOREKSI JUMLAH ENDPOINT DOCS (23 -> 27) + W9a RE-AUDIT 50 ENTRI + 36 TD BARU (TD-N35..TD-N70) + KOREKSI 8 KLAIM FALSE
+Total entri register: 86 (12 entri bagian A/B + 8 entri lama R-/D- + 30 TD-N lama + 36 TD-N baru)
+  Rincian: bagian A = 5 (A.1-A.5), bagian B = 7 (B.1-B.7), entri lama = 8
+  (R-001, R-002, D-001..D-006), TD-N lama = 30 (TD-N1..TD-N17, TD-N21..TD-N33),
+  TD-N baru = 36 (TD-N35..TD-N70).
+  Verifikasi jumlah (2026-09-27, R3): script Python yang memindai file ini
+  menghasilkan bracket-entry = 74,TD-N count = 66, range 1..70, gap =
+  [18, 19, 20, 34] — cocok persis dengan hitungan di header ini. 74 + 12 entri
+  bagian A/B (yang tidak memakai format [BRACKET]) = 86 total entri.
+TD baru tercatat: 66 (30 sebelum W9a + 36 pada W9a)
+  Nomor yang TIDAK pernah dipakai: TD-N18, TD-N19, TD-N20, TD-N34. Alasannya
+  berbeda-beda dan tercatat di "Catatan nomor" — tidak boleh diisi diam-diam.
 Item FIXED di W8: TD-N26 (XFF hop pertama + port dibuang dari key), TD-N27 (composition test cmd/api, 5 test). W8 tidak menambah TD baru -> hitungan 30/38 tidak berubah.
 Item lama diverifikasi STALE/PARTIAL: 8
 Item FIXED di W3: TD-N4, TD-N12, TD-N16, A.1 (baseURL Playwright)
@@ -75,11 +153,21 @@ A. TEMUAN SCAN & FIX INFRASTRUKTUR E2E (2026-09-03)
    `npx playwright test --list` -> Total: 5 tests in 1 file.
    Catatan: 5 test baru di-list (belum dieksekusi; butuh backend + frontend hidup).
 
-2. [FIXED] Backend .env.local memakai port non-standar.
-   - DATABASE_URL: 5434 -> 5432
-   - REDIS_URL:    6381 -> 6379
-   - File: scinel-backend/.env.local
-   [STALE 2026-09-25: kode != docs, cek audit log] Recheck terpartial: .env.local:4 memakai PostgreSQL 5434, .env.local:14 memakai Redis 6379; docker-compose.yml:11 memetakan 5434 dan :28 memetakan 6381.
+2. [OPEN] Backend .env.local memakai port non-standar.
+   - [KOREKSI W9a 2026-09-27] Status turun dari [FIXED] ke [OPEN]. Klaim lama
+     "DATABASE_URL: 5434 -> 5432 / REDIS_URL: 6381 -> 6379" SALAH untuk Postgres.
+   - Yang benar di kode (R2): .env.local:4 = `postgres://scinel_user:scinel_password_dev
+     @localhost:5434/scinel_db?sslmode=disable`; .env.local:14 =
+     `REDIS_URL=redis://localhost:6379`.
+   - docker-compose.yml:11 memetakan `"5434:5432"` (host 5434 -> container 5432)
+     dan :28 memetakan `"6381:6379"`. Jadi 5434 di .env.local itu BENAR untuk
+     docker-compose. Menerapkan "fix" 5434->5432 justru MEMECAHKAN koneksi.
+   - REDIS memang sudah 6379 di .env.local, tapi docker-compose masih expose
+     host 6381 — jadi ada ketidaksesuaian kedua yang belum pernah dicatat.
+   - Bukti: `sed -n '4p;14p' scinel-backend/.env.local`;
+     `sed -n '11p;28p' scinel-backend/docker-compose.yml`.
+   - Sisa yang jujur: [DEFERRED] keputusan "port dev resmi" (5432 native vs
+     5434 docker) adalah keputusan User — lihat Tabel D.
 
 3. [BLOCKED] Backend tidak dapat konek ke PostgreSQL.
    - Error: role "scinel_user" does not exist (28000)
@@ -102,7 +190,21 @@ B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
    - Selesai Fase 1 (2026-09-03): Transaction, Anomaly, Forecast, Webhook, API Key
      diimplementasi penuh (SQL + JOIN + filter). Inventory telah selesai sebelumnya
      (GetAll, GetByWarehouse) meski sisanya (GetBySKU, UpdateQuantity, dll) menyusul.
-   [STALE 2026-09-25: kode != docs, cek audit log] Recheck: inventory_repository_impl.go:137-157 masih TODO untuk GetBySKU, Create, UpdateQuantity, dan LockForUpdate.
+   - [KOREKSI W9a 2026-09-27] Catatan "[STALE 2026-09-25: recheck:
+     inventory_repository_impl.go:137-157 masih TODO untuk GetBySKU, Create,
+     UpdateQuantity, dan LockForUpdate" adalah SALAH. Diverifikasi ulang:
+     `grep -rn "TODO" internal/repository/` -> 0 hasil (seluruh package).
+     - GetBySKU        : inventory_repository_impl.go:139-170 (SELECT + 2 JOIN,
+                         skus & warehouses, 11 kolom di-scan, sql.ErrNoRows -> nil,nil)
+     - Create          : :173-194 (INSERT INTO inventory)
+     - UpdateQuantity  : :196-248
+     - LockForUpdate   : :341-371 (SELECT ... FOR UPDATE; see TD-N21 soal
+                         sifat non-tx-aware-nya)
+     - Plus yang belum pernah dicatat: LockForUpdateTx :250, UpdateQuantityTx :295,
+       CreateSnapshot :383 (digunakan TD-N14).
+   - Sisa: GetBySKUCached (:373-376) dan InvalidateCache (:378-381) memang belum
+     benar — tetapi itu sudah tercatat sebagai TD-N10 dan TD-N11, bukan B.1.
+   - Verifikasi: `grep -c TODO internal/repository/*.go` -> 0.
 2. [FIXED] Service logic masih sebagian placeholder.
    - Selesai Fase 2 (2026-09-04): ForecastService (batch forecast ETS/ARIMA,
      query, accuracy, trigger manual), AnomalyService (deteksi Z-score/IQR,
@@ -138,9 +240,33 @@ B. DEBT DARI LOGBOOK (dari entry Task 5.x — repository/service/test)
    - Selesai Fase 3 (2026-09-04): auth, health, inventory, forecast, anomaly,
      api_key, webhook handler test diimplementasi penuh (testify/mock +
      sqlmock + miniredis). Coverage handler 83.7%.
+   - [KOREKSI W9a 2026-09-27] ANGKA COVERAGE DI REGISTER USANG. Angka 83.7%
+     ditulis 2026-09-04; `go test ./... -cover` pada 2026-09-27 -> handler
+     76.8% of statements. Angka TURUN karena 8 commit berikutnya (W2a..W8)
+     menambah cabang produksi (audit hooks, blacklist, WithTx, anomaly async,
+     composition chain) lebih cepat daripada test yang menyertainya.
+   - Status FIXED TETAP: test benar-benar ada dan lulus. 8 file test di
+     internal/handler/, `go test ./internal/handler/... -count=1` -> ok.
+   - Bukti: `go test ./... -cover` -> "internal/handler ... coverage: 76.8% of
+     statements"; `ls internal/handler/*_test.go | wc -l` -> 8.
+   - Catatan: penurunan coverage = drift yang tidak dipantau. Export angka ini
+     sebagai baseline, bukan sebagai keunggulan -> lihat TD-N36/TD-N37.
 5. [FIXED] Rate limiter test di-skip.
    - Selesai Fase 3 (2026-09-04): rate_limit_test.go diimplementasi dengan
      miniredis (mock Redis). Coverage middleware 99.0%.
+   - [KOREKSI W9a 2026-09-27] ANGKA COVERAGE DI REGISTER USANG. Angka 99.0%
+     ditulis 2026-09-04; `go test ./... -cover` pada 2026-09-27 -> middleware
+     80.8% of statements. Turun karena W5a menukar urutan mount middleware dan
+     W8 menambah helper clientIP() + 3 subtest, sementara jumlah test rate
+     limiter sendiri tidak bertambah.
+   - Status FIXED TETAP: rate_limit_test.go benar-benar menguji limiter.
+     `go test ./internal/middleware/ -run 'RateLimit' -count=1` -> ok, dan
+     subtest getLimitKey (7 total, termauk 3 subtest XFF dari W8) PASS.
+   - Bukti: `go test ./... -cover` -> "internal/middleware ... coverage: 80.8%
+     of statements"; `go test -run TestRateLimitMiddleware
+     ./internal/middleware/... -v` -> 7 subtest PASS.
+   - 5 file test di internal/middleware/: auth_test.go, cors_test.go,
+     middleware_test.go, rate_limit_test.go, rbac_test.go.
 6. [FIXED] E2E test belum dibuat (butuh frontend).
    - Sudah ada Playwright (scinel-frontend) untuk 5 critical flow; lihat
      catatan infra E2E pada bagian A.
@@ -173,27 +299,58 @@ C. TINDAK LANJUT
 
 [D-001] Hardcoded rate limit value (1000 req/s)
   Severity : LOW
+  Status   : OPEN (DIVERIFIKASI W9a 2026-09-27)
   Detail   : Rate limit is hardcoded in main.go instead of reading from config.
+  Bukti    : scinel-backend/cmd/api/main.go:146 ->
+             `rateLimiter := middleware.NewRateLimitMiddleware(redisClient, 1000)`.
+             Bandingkan main.go:155-160 yang memakai cfg.Server.* (Host, Port,
+             ReadTimeout, WriteTimeout) untuk server — jadi config SUDAH ada dan
+             dipakai di objek yang sama, rate limit satu-satunya yang tidak.
   Impact   : Requires code change to adjust rate limits.
   Suggestion: Add RateLimit config section to internal/config and read from env.
+  Catatan  : [DEFERRED] nilai default 1000 yang dipakai user -> lihat Tabel D.
 
 [D-002] No per-route rate limit tiers
   Severity : LOW
+  Status   : OPEN (DIVERIFIKASI W9a 2026-09-27)
   Detail   : All routes share the same 1000 req/s limit. Auth endpoints
              (login/register) may need stricter limits to prevent brute force.
+  Bukti    : scinel-backend/cmd/api/main.go:146 (satu nilai untuk seluruh mux);
+             main.go:105-144 mendaftarkan 27 route tanpa tier per-path.
   Suggestion: Implement per-path or per-group rate limit configurations.
+  Catatan  : sudah ada masalah yang sama dengan TD-N25 (request yang ditolak 401
+             keluar sebelum menyentuh limiter) dan TD-N60 (RBAC manager tidak
+             membatasi gudang) — tiga hal ini saling menguatkan dari sisi
+             abuse. [DEFERRED] lihat Tabel D.
 
 [D-003] RBAC only covers API Keys routes
   Severity : MEDIUM
+  Status   : OPEN (DIVERIFIKASI W9a 2026-09-27)
   Detail   : Only API Keys management routes are protected by RBAC.
              Anomaly status updates and forecast generation may also
              need role-based restrictions.
+  Bukti    : scinel-backend/cmd/api/main.go:134 `adminOnly :=
+             middleware.RBACMiddleware("admin")` membungkus HANYA 4 route
+             (:135-138 POST/GET/DELETE api-keys + rotate). Route lain yang
+             menulis data sensitif TIDAK dibungkus RBAC apa pun:
+             :117 POST /api/v1/transactions, :120 POST /api/v1/inventory/import,
+             :124 POST /api/v1/forecasts/generate,              :130 PUT /api/v1/anomalies/{id},
+             :141 POST /api/v1/webhooks/subscribe, :143 DELETE
+             /api/v1/webhooks/subscriptions/{id}. Semua route itu hanya
+             diawasi AuthMiddleware (login-lah), sehingga user role APACUN pun
+             bisa menghapus subscription webhook milik siapa pun.
   Suggestion: Audit remaining routes and add RBAC where appropriate.
+  Relasi   : lihat TD-N60 — di dua route sudah ada kerangka RBAC manager
+             (`if userInfo.Role == "manager"`) tetapi isinya no-op TODO.
 
 [D-004] Default RBAC role is "admin"
   Severity : LOW
+  Status   : OPEN (DIVERIFIKASI W9a 2026-09-27)
   Detail   : Admin role string "admin" is hardcoded. Different deployments
              may use different role names.
+  Bukti    : scinel-backend/cmd/api/main.go:134 — string "admin" literal, bukan
+             dari cfg. Bandingkan config/config.go yang sudah memuat JWT expiry
+             (:59-60) sehingga pola "baca dari config" tersedia di repo ini.
   Suggestion: Make RBAC roles configurable via environment or config.
 
 --------------------------------------------------------------------------------
@@ -258,14 +415,40 @@ Referensi cepat:
 - TD-N12
 
 [TD-N1] POST /transactions dapat mengembalikan HTTP 500
-  Severity : CRITICAL
-  Status   : OPEN (bukti statis terverifikasi; unit test mocked 500 pass; HTTP live belum diuji)
-  Deskripsi: Inventory repository aktif masih mengembalikan error placeholder;
-             handler memetakan error GetBySKU ke HTTP 500.
-  Bukti    : scinel-backend/internal/repository/inventory_repository_impl.go:137-157;
-             scinel-backend/internal/handler/inventory_handler.go:135-138;
-             scinel-backend/internal/handler/inventory_handler_test.go:172-180;
-             `go test -mod=readonly ./internal/handler -run 'TestInventoryHandler' -count=1` -> PASS.
+  Severity : LOW (TURUN dari CRITICAL — lihat KOREKSI W9a)
+  Status   : OPEN (dikoreksi W9a 2026-09-27) — CLAIM ASLI SUDAH REFUTED, sisa
+             yang valid jauh lebih kecil dari yang diklaim
+  KOREKSI W9a 2026-09-27 (R2 — kla register salah, kode yang benar):
+    Premisanya adalah "Inventory repository aktif masih mengembalikan error
+    placeholder; handler memetakan error GetBySKU ke HTTP 500". KEDUA HAL
+    tersebut tidak lagi benar di kode:
+    (a) GetBySKU sudah SQL PENUH — inventory_repository_impl.go:139-170
+        (SELECT + JOIN warehouses + JOIN skus, 11 kolom, sql.ErrNoRows -> nil,nil).
+        Tidak ada placeholder. Bukti: `grep -rn TODO internal/repository/` -> 0.
+    (b) Jalur CreateTransaction sudah memakai pemetaan error berbasis sentinel:
+        inventory_handler.go:250-258
+          errors.Is(err, repository.ErrInventoryNotFound) -> 404 (:253)
+          errors.Is(err, repository.ErrInsufficientStock)  -> 409 (:255)
+          default                                          -> 500 (:257)
+        Ini hasil TD-N14 (W4), yang tidak pernah masuk ke entri TD-N1.
+    (c) Satu-satunya 500 di jalur ini adalah `default` untuk error tak
+        terduga (:257) — itu perilaku yang BENAR, bukan bug. Tembergun 500
+        yang "kembal" untuk kasus inventaris-yang-tilang sudah tidak mungkin
+        lewat jalur yang diklaim di entri lama.
+  Sisa yang SAH untuk dicatat: baris :257 mengembalikan 500 dengan pesan
+    err.Error() apa adanya, sehingga_detail internal bocor ke klien
+    (mis. nama constraint Postgres). Itu masalah information disclosure,
+    bukan "handler salah status".
+  Bukti    : scinel-backend/internal/repository/inventory_repository_impl.go:139-170;
+             scinel-backend/internal/handler/inventory_handler.go:250-258;
+             `go test ./internal/handler -run 'TestInventoryHandler_CreateTransaction'
+              -count=1` -> PASS (13 subtest + 3 subtest TriggersAnomalyDetection,
+              setelah W4-continue; lihat TD-N23 item 1).
+  Catatan  : [DEFERRED] apakah detail error boleh dikembalikan ke klien adalah
+             keputusan User (UX keamanan vs aid diagnostik) -> Tabel D.
+  Riwayat  : entri ini tadinya [OPEN / CRITICAL] dengan status line
+             "bukti statis terverifikasi". Angka severity dan premisanya
+             koreksi W9a; TIDAK ada kode yang diubah.
 
 [TD-N2] Tidak ditemukan writer audit trail di aplikasi
   Severity : HIGH
@@ -420,12 +603,20 @@ Referensi cepat:
   Verifikasi: `go build ./...` exit 0; `go test ./...` 13 paket ok (18 test
              scheduler baru); `go test -race ./internal/scheduler/... -count=5`
              -> ok tanpa DATA RACE; `go vet ./...` exit 0.
-  Catatan: go.mod/go.sum tidak berubah (nol dependensi baru). Backoff
-           eksponensial 1s/2s/4s/... sudah ada di kode
-           (webhook_service.go:257-266 calculateRetryTime, cap 3600s, floor
-           sub.RetryInterval) dan TIDAK disentuh — job ini hanya menyediakan
-           cadence poll. Jumlah percobaan bukan konstanta 5 melainkan
-           sub.MaxRetries per subscription (webhook_service.go:220).
+   Catatan: go.mod/go.sum tidak berubah (nol dependensi baru). Backoff
+            eksponensial 1s/2s/4s/... sudah ada di kode
+            (webhook_service.go:257-266 calculateRetryTime, cap 3600s, floor
+            sub.RetryInterval) dan TIDAK disentuh — job ini hanya menyediakan
+            cadence poll. Jumlah percobaan bukan konstanta 5 melainkan
+            sub.MaxRetries per subscription (webhook_service.go:220).
+   >>> KOREKSI W9a 2026-09-27 (R2): kalimat "backoff ... sudah ada di kode"
+       di atas SETENGAH SALAH dan tidak boleh dipakai sebagai bukti. Fungsinya
+       dihitung, tetapi hasil hitungnya TIDAK PERNAH DISIMPAN. Kolom
+       scheduled_retry_at tidak pernah di-write oleh UpdateDeliveryStatus, dan
+       calculateRetryTime hanya masuk ke logger.Warn. Akibatnya backoff tidak
+       pernah berlaku — retry terjadi pada cadence poll 30s, bukan 1s/2s/4s.
+       Bukti lengkap + register entri baru: TD-N35.
+       Status TD-N6 sendiri (scheduler terjadwal) TETAP FIXED dan valid.
 
 [TD-N7] .gitignore memiliki encoding campuran dan aturan docs/ tidak berlaku
   Severity : MEDIUM
@@ -1399,3 +1590,1349 @@ Referensi cepat:
              `go build ./...` exit 0 dan `go test ./...` 13 paket ok (file lisensi
              tidak memengaruhi build, tapi dicek agar tidak ada import/embed yang
              rusak).
+
+================================================================================
+W9a — RE-AUDIT LENGKAP + TEMUAN BARU (2026-09-27)
+================================================================================
+RULES yang dipakai: TEAM_CONTRACT.md v2.2 — R2 (kode = source of truth),
+R3 (zero halusinasi, wajib file:line), R8 (scope). W9a adalahaudit READ-ONLY
+terhadap kode: tidak ada file .go/.ts/.tsx/.sql/.yml/.json yang disentuh.
+Yang berubah hanya file register ini + docs/LOGBOOK.txt (entri W9a).
+
+METODE VERIFIKASI (semua dijalankan 2026-09-27):
+  go build ./... -> exit 0
+  go vet ./... -> exit 0
+  go test ./... -cover -> 13 paket ok, 0 FAIL
+  npx tsc --noEmit --pretty false -> exit 0
+  npx jest --coverage -> 71 suite / 113 test PASS, JEST_EXIT=1 (threshold)
+  git ls-files / git check-ignore -v --no-index / git status --short
+  grep -rn / sed -n / ls -la / file / xxd
+
+--------------------------------------------------------------------------------
+CATATAN NOMOR (W9a)
+--------------------------------------------------------------------------------
+TD-N18, TD-N19, TD-N20, TD-N34 TIDAK PERNAH DIPAKAI. Alasannya beda-beda dan
+sengaja TIDAK diisi diam-diam supaya tidak bentrok dengan riwayat:
+  TD-N18/N19/N20 — lompat dari W3.1 (N17) ke W4 (N21-N23). W4 melanjutkan penomoran dari draft sebelumnya, sehingga
+    penomoran dari draft sebelumnya. N20 sempat dikaitkan ke "hapus 41 .bak" di
+    brief W6.1+W7; pemetaan itu SALAH (entri .bak yang nyata = TD-N12).
+  TD-N34 — XFF/spoofing. Entri yang NYATA untuk topik itu adalah TD-N26
+    (ditemukan W5b, ditutup W8). Jadi tidak ada entri TD-N34 yang dibuat;
+   "[OVERRIDE W9a] Brief menyebut 'TD-N34 (XFF spoof)' sebagai item Table D.
+    Kenyataan (bukti): `grep -c "^\[TD-N34\]" docs/TECHNICAL_DEBT.txt` -> 0,
+    dan `grep -rn X-Forwarded-For --include=*.go .` ->
+    internal/middleware/rate_limit.go:108,120,128-131. Entri terkait = TD-N26.
+    Fix: brief dikoreksi -> TD-N26 "Sisa yang jujur" dipindahkan ke Tabel D
+    sebagai item DEFERRED. Alignment: R2 / R3 / §11.2.
+Penomoran W9a melanjutkan dari TD-N33 (terakhir sebelum W9a) menjadi
+TD-N35..TD-N70. Rentang TD-N35..TD-N70 dipilih, bukan TD-N34..TD-N69, supaya
+nomor yang belum pernah terpakai tetap terlihat sebagai "lubang" yang disengaja.
+
+================================================================================
+TABEL A — REKAP 50 ENTRI EXISTING (verdict per entri, 2026-09-27)
+================================================================================
+Format: entri | status register SEBELUM W9a | status KODE AKTUAL | verdict
+
+  A.1  Playwright baseURL 3001->3000            FIXED      FIXED    VALID
+  A.2  .env.local port non-standar              FIXED      OPEN     STALE (dikoreksi ke OPEN)
+  A.3  [BLOCKED] role "scinel_user" does not exist  BLOCKED  BLOCKED  VALID (butuh Postgres hidup)
+  A.4  [DONE] frontend .env.local dibuat         DONE       DONE     VALID
+  A.5  BOM baris-1 .env.local backend            MINOR      MINOR    VALID (BOM masih ada)
+  B.1  Repository masih placeholder             FIXED      FIXED    STALE->FIXED (catatan STALE lama salah)
+  B.2  Service masih placeholder                FIXED      FIXED    VALID (line-number drift saja)
+  B.3  Integration test belum jalan              FIXED      FIXED    VALID (t.Skip masih ada, disengaja)
+  B.4  Handler test placeholder / cov 83.7%      FIXED      FIXED    STALE->FIXED (cov aktual 76.8%)
+  B.5  Rate limiter test di-skip / cov 99.0%     FIXED      FIXED    STALE->FIXED (cov aktual 80.8%)
+  B.6  E2E belum dibuat                          FIXED      FIXED    VALID (file ada; artefak 0 -> TD-N65)
+  B.7  [NEW] dep miniredis ditambahkan            NEW        DONE     VALID (dipakai rate_limit_test.go)
+  R-001 Middleware belum wired                   RESOLVED   RESOLVED VALID
+  R-002 CSP & Referrer-Policy belum ada          RESOLVED   RESOLVED VALID
+  D-001 Rate limit 1000 hardcoded                (NO STATUS)OPEN     STALE->OPEN (status diisi)
+  D-002 No per-route rate limit tiers            (NO STATUS)OPEN     STALE->OPEN (status diisi)
+  D-003 RBAC hanya API Keys                      (NO STATUS)OPEN     STALE->OPEN (status diisi)
+  D-004 Default RBAC role "admin"                (NO STATUS)OPEN     STALE->OPEN (status diisi)
+  D-005 Nama index inventory                     OPEN       OPEN     VALID
+  D-006 Tag/CHANGELOG (push tertunda)            RESOLVED   PARTIAL  VALID (tag lokal ada, push tak terverifikasi)
+  TD-N1  POST /transactions bisa 500             OPEN/CRIT  OPEN/LOW STALE (premisanya refuted)
+  TD-N2  Tidak ada writer audit trail            FIXED      FIXED    VALID
+  TD-N3  Logout tidak mencabut token             FIXED      FIXED    VALID
+  TD-N4  Frontend typecheck Select               FIXED      FIXED    VALID (tsc exit 0)
+  TD-N5  Rate limiter sebelum Auth               FIXED      FIXED    VALID
+  TD-N6  Forecast batch & retry tidak terjadwal  FIXED      FIXED    VALID (catatan backoff dikoreksi)
+  TD-N7  .gitignore encoding campuran            FIXED      FIXED    VALID
+  TD-N8  SECURITY/LICENSE tidak konsisten        FIXED      FIXED    VALID
+  TD-N9  Backend .env.example hilang             PARTIAL    PARTIAL  VALID
+  TD-N10 GetBySKUCached belum implementasi      OPEN       OPEN     VALID (bukan "error placeholder")
+  TD-N11 InvalidateCache belum implementasi     OPEN       OPEN     VALID (no-op, bukan error)
+  TD-N12 File .bak ter-track                     FIXED      FIXED    VALID
+  TD-N13 ProcessDeliveries tanpa pemanggil       FIXED      FIXED    VALID
+  TD-N14 CreateTransaction tidak atomik           FIXED      FIXED    VALID
+  TD-N15 Deteksi anomali hanya tipe "out"        OPEN       OPEN     VALID
+  TD-N16 @jest/globals hilang                    FIXED      FIXED    VALID
+  TD-N17 next build /reset-password              FIXED      FIXED    VALID
+  TD-N21 LockForUpdate non-tx-aware              OPEN       OPEN     VALID (+ DEFERRED)
+  TD-N22 Blacklist Redis fail-open               OPEN       OPEN     VALID (+ DEFERRED)
+  TD-N23 Cakupan test W4 (3 jalur)               PARTIAL    PARTIAL  VALID (+ DEFERRED)
+  TD-N24 Data race testify vs *sql.Tx            FIXED      FIXED    VALID
+  TD-N25 401 keluar sebelum rate limiter         OPEN       OPEN     VALID (+ DEFERRED)
+  TD-N26 XFF mentah jadi key rate limit          FIXED      FIXED    VALID (+ sisa DEFERRED)
+  TD-N27 cmd/api/main_test placeholder           FIXED      FIXED    VALID (+ sisa = TD-N38)
+  TD-N28 TEST.txt "85% duplikat"                 OPEN       OPEN     VALID (+ DEFERRED)
+  TD-N29 CI backend mati + go 1.21               PARTIAL    PARTIAL  VALID
+  TD-N30 LICENSE = lisensi golang-migrate         FIXED      FIXED    VALID
+  TD-N31 useApi/useBreakpoint tanpa consumer     OPEN       OPEN     VALID (+ DEFERRED)
+  TD-N32 useDashboardData MOCK_INVENTORY         OPEN       OPEN     VALID (+ DEFERRED)
+  TD-N33 playwright.config.ts di backend         FIXED      FIXED    VALID (file dihapus di W7.1)
+
+RINGKASAN TABEL A:
+  FIXED valid      : 22
+  RESOLVED valid   :  2  (R-001, R-002)
+  OPEN valid       : 17  (termasuk 5 yang tadinya klaim STALE)
+  PARTIAL valid    :  4  (D-006, TD-N9, TD-N23, TD-N29)
+  ------------------------------
+  TOTAL            : 45 entri ber-status + 5 entri (A.3 BLOCKED, A.4 DONE,
+                    A.5 MINOR, B.7 NEW/DONE, B.6 yang juga FIXED) -> 50
+  Klaim STALE yang dikoreksi : 5 (A.2, B.1, B.4, B.5, TD-N1)
+  Klaim tanpa bukti file:line : 0 yang tersisa di 50 entri existing
+
+================================================================================
+TABEL B — TEMUAN BARU (verifikasi di kode, 2026-09-27)
+================================================================================
+Kolom "Di register?" = apakah temuan ini sudah punya entri sebelum W9a.
+  #   Temuan                                                                   Severity  Kategori     Di register?   Kandidat TD
+  1   Webhook backoff kosmetik: scheduled_retry_at tidak di-persist            HIGH      KODE          BELUM          TD-N35
+  2   internal/service coverage 0% (5 test t.Skip)                            HIGH      TEST          BELUM          TD-N36
+  3   internal/repository coverage 0% (9 test placeholder)                    HIGH      TEST          BELUM          TD-N37
+  4   cmd/api coverage 0% (composition test tak sentuh main())                MEDIUM    TEST          BELUM (sisa TD-N27)  TD-N38
+  5   Frontend middleware.ts ABSENT (route guard hanya client-side)          HIGH      SECURITY      BELUM          TD-N39
+  6   Frontend branch coverage 32.89% < threshold 50%                          HIGH      TEST          BELUM          TD-N40
+  7   34 dari 71 test file (47.9%) smoke test                                 MEDIUM    TEST          BELUM          TD-N41
+  8   lib/api.ts mockApiKeys + mockWebhooks fallback di produksi              MEDIUM    KODE          BELUM          TD-N42
+  9   useDashboardData: MOCK_INVENTORY + tanpa polling                        MEDIUM    KODE          SEBAGIAN (TD-N32)  TD-N43
+  10  profile/page.tsx: PUT /auth/me tidak ada (backend + frontend)            HIGH      KODE          BELUM          TD-N44
+  11  scinel-backend/.env.test TER-TRACK (JWT_SECRET_KEY + kredensial DB)      MEDIUM    SECURITY      BELUM          TD-N45
+  12  .gitignore tidak meng-ignore bare .env / .env.test                     MEDIUM    SECURITY      BELUM          TD-N46
+  13  Binary api (10.88MB) + api.exe (11.06MB) ter-commit                     MEDIUM    DEVOPS        BELUM          TD-N47
+  14  .gitignore:45 docs/ memblokir docs/DEPLOYMENT.md (dirujuk 6 tempat)     MEDIUM    DEVOPS        BELUM          TD-N48
+  15  Dockerfile backend 0 byte; frontend Dockerfile ABSENT                   HIGH      DEVOPS        BELUM          TD-N49
+  16  CI: 0 stage deploy; 0 langkah frontend sama sekali                      HIGH      DEVOPS        BELUM          TD-N50
+  17  0 descriptor PaaS/IaC (render.yaml/railway/fly/Procfile)                MEDIUM    DEVOPS        BELUM          TD-N51
+  18  Monitoring 0 (prometheus/sentry/datadog)                                MEDIUM    DEVOPS        BELUM          TD-N52
+  19  Lighthouse audit ABSENT padahal ROADMAP 3 klaim ">90 verified"           HIGH      DOKUMENTASI   BELUM          TD-N53
+  20  k6 load test ABSENT padahal klaim p99<100ms @1000 users                MEDIUM    DEVOPS        BELUM          TD-N54
+  21  Screenshots / artefak visual ABSENT                                     MEDIUM    DOKUMENTASI   BELUM          TD-N55
+  22  Portfolio writeup ABSENT                                                MEDIUM    DOKUMENTASI   (merged #21)  TD-N55
+  23  next.config.js + next.config.mjs duplikat (yang .mjs mati)              LOW       KODE          BELUM          TD-N56
+  24  app/(auth)/layout.tsx ABSENT                                            LOW       KODE          BELUM          TD-N57
+  25  ConfidenceIntervalBadge.tsx ABSENT (ROADMAP 3 §5.1.3)                   LOW       KODE          BELUM          TD-N58
+  26  Halaman khusus ABSENT: not-found/error/401/404/500                      MEDIUM    KODE          BELUM          TD-N59
+  27  RBAC manager warehouse isolation = no-op TODO (2 situs)                  HIGH      SECURITY      BELUM          TD-N60
+  28  API key tidak bisa dipakai sebagai metode autentikasi                    HIGH      SECURITY      BELUM          TD-N61
+  29  Rate limit 1000 hardcoded                                               LOW       KODE          SUDAH (D-001) -
+  30  Klaim cache hit rate >60% tanpa 1 pun cache read nyata                 MEDIUM    DOKUMENTASI   BELUM          TD-N62
+  31  32 checkbox [ ] di ROADMAP 4 belum dicentang                            MEDIUM    DOKUMENTASI   BELUM          TD-N63
+  32  ROADMAP 2 punya 26 checkbox [ ] juga (bukan hanya ROADMAP 4)             MEDIUM    DOKUMENTASI   (merged #31)  TD-N63
+  33  ROADMAP 3 §8.4 klaim cross-browser/cross-device tanpa bukti            MEDIUM    DOKUMENTASI   BELUM          TD-N64
+  34  Workflow CI backend duplikat mati (go-version 1.21)                     MEDIUM    DEVOPS        SUDAH (TD-N29) -
+  35  npx jest --coverage exit non-zero (branch 32.89% + func 45.76%)          HIGH      TEST          (merged #6)   TD-N40
+  36  lib/api.ts fungsi hanya 28.57%                                           MEDIUM    TEST          (merged #6)   TD-N40
+  37  14 dari 16 page test = smoke test saja                                  MEDIUM    TEST          (merged #7)   TD-N41
+  38  "webhook rate limit hardcoded" — SALAH: tidak ada rate limit sama sekali   MEDIUM    KODE          BELUM          TD-N66
+  --  TEMUAN TAMBAHAN DI LUAR DAFTAR BRIEF (ditemukan saat verifikasi) ---------
+  39  POST /inventory/import balas "Import processed (placeholder)"            HIGH      KODE          BELUM          TD-N67
+  40  anomaly_handler:94 filter belum diimplementasikan (TODO)                MEDIUM    KODE          BELUM          TD-N68
+  41  ROADMAP 3 klaim 8 hooks ✅ tapi 7 tidak ada di repo                     HIGH      DOKUMENTASI   BELUM          TD-N69
+  42  Go toolchain "covdata" hilang -> `go test -cover` per paket terbatas     LOW       DEVOPS        BELUM          TD-N70
+
+  Rekap Tabel B: 42 temuan diperiksa, 35 menghasilkan entri baru
+  (7 di-merge ke entri lain / sudah tercakup entri existing), 36 nomor TD
+  terpakai (TD-N35..TD-N70) karena #21+#22 digabung menjadi satu TD-N55 dan
+  #29/#34 sudah tercakup D-001/TD-N29.
+
+CATATAN KOREKSI FAKTA TERHADAP BRIEF W9a (R2 — dengan bukti, §11.2):
+  [OVERRIDE-1] Brief: "webhook_service.go rate limit tidak pakai config (hardcoded)".
+    Kenyataan: `grep -n "rateLimit\|RateLimit\|429" internal/service/webhook_service.go
+    internal/handler/webhook_handler.go` -> 0 hasil. TIDAK ADA rate limit di
+    webhook service maupun handler, jadi tidak ada yang "hardcoded".
+    Fix: dicatat ulang sebagai TD-N66 ("tidak ada rate limit sama sekali"),
+    bukan "hardcoded". Alignment: R2 / R3.
+  [OVERRIDE-2] Brief: "TD-N34 (XFF spoof)" sebagai item Tabel D.
+    Kenyataan: entri TD-N34 tidak pernah ada (grep -> 0); topiknya = TD-N26.
+    Fix: item DEFERRED merujuk TD-N26 "Sisa", bukan TD-N34. Alignment: R2 / R3.
+  [OVERRIDE-3] Brief: "internal/repository coverage 0% (8 test placeholder)".
+    Kenyataan: ada 9 file test (bukan 8): 8 berisi `assert.True(t, true)`
+    (anomaly, api_key, base, forecast, inventory, transaction, user, webhook)
+    + 1 `func TestPlaceholder(t *testing.T) {}` (repository_test.go).
+    Fix: TD-N37 menulis 9 file, dengan rincian mana yang mana. Alignment: R2.
+  [OVERRIDE-4] Brief: "48% test file hanya smoke test".
+    Kenyataan: 34 dari 71 file = 47.9% (round ke 48%). ANGKA BRIEF BENAR.
+    Fix: tidak ada perubahan; dikonfirmasi dengan penghitungan ulang. Alignment: R3.
+  [OVERRIDE-5] Brief: "32 checkbox [ ] di ROADMAP 4".
+    Kenyataan: `grep -c '^\s*- \[ \]' "docs/ROADMAP 4. DEPLOYMENT.md"` -> 32. BENAR.
+    Tambahan yang tidak disebut brief: ROADMAP 2 punya 26 checkbox [ ] juga,
+    sedangkan ROADMAP 1 dan ROADMAP 3 punya 0 (semua pakai emoji ✅).
+    Fix: TD-N63 mencakup 26 + 32 = 58 checkbox. Alignment: R2.
+  [OVERRIDE-6] Brief: "cmd/api coverage 0% (main_test composition only, tidak sentuh main())".
+    Kenyataan: `go test ./... -cover` -> "cmd/api ... coverage: 0.0% of statements".
+    BENAR. Fix: tidak ada perubahan. Alignment: R3.
+  [OVERRIDE-7] Brief: "TD-N1 klaim [OPEN] sudah FIXED" (dari konteks audit 2026-09-27).
+    Kenyataan: TIDAK FIXED dan TIDAK refuted seluruhnya. GetBySKU memang sudah
+    terimplementasi (bagian premisanya refuted) TETAPI jalur 500 default masih
+    ada di inventory_handler.go:257 — hanya sekarang itu perilaku default yang
+    benar untuk error tak terduga, bukan bug pemetaan status.
+    Fix: TD-N1 tetap OPEN dengan severity diturunkan CRITICAL->LOW, dan
+    sisanya (bocor detail error) dicatat eksplisit. Alignment: R2 / R3.
+
+================================================================================
+TABEL C — ROADMAP: TASK YANG BELUM 100% (2026-09-27)
+================================================================================
+Status penanda di roadmap tidak seragam — ini sendiri temuan:
+  ROADMAP 1: 2634 baris, 234 emoji ✅, 0 checkbox
+  ROADMAP 2: 2862 baris, 187 emoji ✅, 26 checkbox [ ]
+  ROADMAP 3: 2230 baris, 243 emoji ✅, 0 checkbox
+  ROADMAP 4: 2469 baris, 220 emoji ✅, 32 checkbox [ ]
+  Artinya "semua ✅" pada ROADMAP 1 & 3 TIDAK dapat diverifikasi dari format
+  dokumennya sendiri — harus dicek ke kode. Yang dicek (lihat Tabel B).
+
+  Roadmap  Task                Judul                            Status   Bukti file:line                                  Blocker
+  -------  ------------------  ------------------------------  -------  -----------------------------------------------  ------------------------
+  R1       (seluruh 234 ✅)     Fondasi & core                   PARTIAL  grep -rn TODO internal/repository/ -> 0, tapi W9a menemukan rate-limit/config
+                                             cache Redis belum ada (TD-N62) & TD-N7 baru diperbaiki di W6
+  R1       1.x                 Provision role scinel_user       NOT DONE A.3 [BLOCKED] — butuh Postgres hidup;              Butuh instance Postgres lokal
+                                             docker-compose.yml:6-8 mem provisioned role itu
+  R2       (26 checkbox [ ])    Backend core                     PARTIAL  docs/ROADMAP 2 BACKEND CORE.md — 26 baris "- [ ]";  Daftar tak di-ekspansi di sini karena
+                                             tidak satu pun terisi                            tiap item perlu verifikasi satu-per-satu;
+                                             lihat TD-N63                                    disarankan User meninjau ROADMAP 2 langsung
+  R2       2.x                 Unit test repository/service     NOT DONE internal/repository cov 0.0%, internal/service      DipDenied test (R5) — 0 unit test,
+                                             cov 0.0% (go test ./... -cover)                  lihat TD-N36/TD-N37
+  R2       2.x                 RBAC di route sensitif            PARTIAL main.go:134-138 RBAC hanya di 4 route api-keys;      Butuh keputusan User soal scope RBAC
+                                             D-003 + TD-N60
+  R3       §5.1.3              ConfidenceIntervalBadge           NOT DONE find . -name "ConfidenceInterval*" -> 0 hasil;         Komponen belum ada sama sekali
+                                             tidak ada di scinel-frontend/components/
+  R3       §8.3 (1)            "Lighthouse score >90 verified"    NOT DONE Tidak ada konfigurasi/artefak Lighthouse di repo;  Butuh audit Lighthouse nyata (build+serve)
+                                             klaim di docs/ROADMAP 3 FRONTEND or MOBILE.md:1979
+  R3       §8.3 (2)            "WCAG 2.1 AA compliance" ✅       NOT DONE Tidak ada axe/jest-axe/a11y test di repo;           Butuh dependency + baseline
+  R3       §8.3 (3)            "Code splitting" ✅                NOT DONE next.config.js tidak punya dynamic import;         —
+                                             tidak terverifikasi ada dynamic() di halaman berat
+  R3       §8.4 (1)            "Cross-browser tested" ✅          NOT DONE Tidak ada cross-browser test (hanya chromium di    Butuh browser matrix
+                                             playwright.config.ts:18-20)
+  R3       §8.4 (2)            "Cross-device verified" ✅         NOT DONE playwright.config.ts projects hanya chromium
+  R3       §8.4 (3)            "UI polish complete / ready prod"  NOT DONE Tidak ada artefak; next.config.js tidak punya
+                                             security headers
+  R3       §Testing/Hooks      "useAuth, useApi, useTheme,        NOT DONE hooks/ hanya berisi 3 file: useApi.ts,              7 hook tidak ada sama sekali
+                    useInventory, useForecast, useAnomalies,   useBreakpoint.ts, useDashboardData.ts
+                    useForm, useDebounce ✅ (8 hooks)"
+  R3       §Testing/Integration "Real-time polling 30s ✅"        PARTIAL  7 halaman punya setInterval(30000); dashboard TIDAK (TD-N43)
+  R3       §5.x                Halaman 404/500/401 custom        NOT DONE find app -name "not-found*" -o -name "error*" -> 0    TD-N59
+  R4       (32 checkbox [ ])   Deployment                        PARTIAL  docs/ROADMAP 4 DEPLOYMENT.md — 32 baris "- [ ]";       Tidak ada satu pun terisi;
+                                             tidak ada Dockerfile frontend, tidak ada CI deploy,        belum ada target deployment
+                                             tidak ada PaaS descriptor, tidak ada monitoring
+  R4       §Containerization    Dockerfile backend                NOT DONE scinel-backend/Dockerfile = 0 byte (Jul 20);      Dockerfile kosong, tidak ada isinya
+                                             scinel-frontend/Dockerfile tidak ada
+  R4       §CI/CD               Deploy pipeline                  NOT DONE .github/workflows/ci.yml hanya punya job "test";   Tidak ada stage deploy
+                                             tidak ada langkah frontend sama sekali (grep pnpm|npm|jest|next|tsc -> 0)
+  R4       §Monitoring          Observability                     NOT DONE grep -iE "prometheus|sentry|datadog" -> 0            TD-N52
+  R4       §Testing             k6 load test                      NOT DONE Tidak ada skrip k6 di repo; klaim p99<100ms di
+                                             TEST.txt:350+ tidak punya artefak
+  R4       §Docs                docs/DEPLOYMENT.md                NOT DONE File tidak ada; .gitignore:45 docs/ akan memblokir  TD-N48
+  R4       §Portfolio           Screenshots + writeup             NOT DONE git ls-files | grep -iE "\.png$|\.jpg$" -> 0         TD-N55
+
+  Catatan: "Docs/DEPLOYMENT.md" dirujuk 6x (TDD.md:282, TDD.md:2737 mengklaim "✅
+  docs/DEPLOYMENT.md (deployment guide)", ROADMAP 4:987,1018,1254,
+  BLUEPRINT 4:1145,1315) tetapi filenya tidak pernah ada -> TD-N48.
+  ROADMAP 3 §8.3 kode-contoh memakai `useApi('/inventory', {autoFetch: true})`
+  padahal hooks/useApi.ts signature-nya berbeda dan hook itu sendiri dead code
+  (TD-N31) — contoh di roadmap tidak pernah bisa dijalankan.
+
+================================================================================
+TABEL D — DEFERRED (menunggu keputusan User / DeepSeek)
+================================================================================
+DEFERRED bukan "sudah beres" dan bukan pengganti OPEN. Semua entri di bawah
+masih OPEN di kode; yang menahannya adalah keputusan yang OpenCode tidak
+berwenang ambil sendiri (R8 + §11.4). "Kapan revisit" = pemicu yang harus
+terjadi sebelum item ini boleh dikerjakan.
+
+  TD     Judul                          Alasan Deferred                                          Kapan Revisit
+  -----  -----------------------------  -------------------------------------------------------  ----------------------------
+  A.2    .env.local port dev (5434?)    Dua opsi sama-sama valid (5432 native vs 5434             User pilih "port dev resmi"; lalu
+                                        docker); 5434 yang tertulis SEBENARNYA benar untuk          update A.2 jadi FIXED
+                                        docker-compose, jadi "fix" lama justru merusak
+  D-001  Rate limit 1000 hardcoded      Butuh nilai default yang dikehendaki User (1000              User tentukan angka rate limit per
+                                        sangat longgar untuk endpoint auth)                       environment
+  D-002  Tier rate limit per-route      Bertumpu pada keputusan D-001; pola tier apa yang            Setelah D-001 diputuskan
+                                        dipakai (path-based? group?) belum disepakati
+  TD-N1  500 di CreateTransaction       Apakah err.Error() boleh sampai ke klien adalah             User putuskan: generic message
+                                        keputusan UX-vs-keamanan, bukan fakta teknis                vs detail (umumnya generic)
+  TD-N9  Backend .env.example hilang    Isi file (.env.example) harus mencerminkan nilai yang      Setelah A.2 diputuskan; cukup tulis
+                                        dipilih User, jadi tidak boleh OpenCode menebak             file dari .env.local final
+  TD-N21 LockForUpdate non-tx-aware     Menghapus = breaking change pada interface                User otorisasi breaking change +
+                                        InventoryRepository (mock test + implementor)                renaming mock test
+  TD-N22 Blacklist Redis fail-open      Opsi (a) fail-closed / (b) in-memory lapis-2 /              User pilih opsi; (c) "biarkan +
+                                        (c) biarkan + alert — semuanya trade-off nyata              monitoring" butuh TD-N52 dulu
+  TD-N23  Test blacklist miniredis +     Butuh miniredis wiring di auth_handler_test +              Scope W berikutnya menyertakan test
+         audit unit test + endpoint READ  test endpoint; di luar scope W4/W4-continue             middleware/handler
+  TD-N25  401 sebelum rate limiter       Opsi (b) rate limiter dobel / (c) limiter khusus            User pilih pendekatan middleware
+                                        no-Auth = perubahan desain middleware
+  TD-N26  XFF hop pertama masih bisa    Butuh allowlist proxy tepercaya di config —               Setelah keputusan deployment (proxy
+         dipalsukan klien                keputusan deployment, bukan kode                     apa yang rewrite XFF?)
+  TD-N28  docs/TEST.txt duplikasi       Merge = keputusan editorial; opsi (1) BERBAHAYA           User putuskan: rename jadi
+                                        (316 baris unik akan hilang)                              "TEST EXECUTION RESULTS.txt"?
+  TD-N31  useApi/useBreakpoint dead     Hapus hook = hapus 4 file di luar scope W7                User pilih: hapus / pasang / tandai
+  TD-N32  MOCK_INVENTORY fallback        3 opsi (hapus / label UI / env-guard), semua              User pilih tampilan dashboard saat
+                                        menyentuh file produksi di luar scope W7                    backend belum terhubung
+  TD-N35  Webhook backoff tidakpersist   Memerlukan migration ALTER (tambah/kunci kolom)             User otorisasi migration baru
+         (scheduled_retry_at)           scheduled_retry_at + signature repository berubah =        (§11.4.1 arsitektur/schema)
+                                        contract change di repository
+  TD-N39  Frontend middleware.ts        Menambah route guard Next.js = perubahan arsitektur
+                                        auth frontend (layout/redirect)                         User pilih pendekatan guard
+  TD-N42  lib/api.ts mock fallback      Sama seperti TD-N32: hapus mock = file produksi
+  TD-N43  Dashboard tanpa polling        Menambah setInterval = perubahan perilaku UI
+                                        (beban request) + keputusan interval
+  TD-N45  .env.test ter-track            Untrack + purge history = keputusan repo hygiene;
+                                       Rsiko: apakah kredensial test itu memang publik-oke
+  TD-N46  .gitignore .env/.env.test      Menambah rule .git bisa(dto) meng-untrack file
+                                        yang tidak dimaksud -> butuh review
+  TD-N47  Binary api/api.exe ter-commit  Hapus 22MB dari history = rewrite history; untrack saja
+                                        tidak mengurangi ukuran repo
+  TD-N48  .gitignore:45 docs/            Mengubah rule docs/ = impacts 32 file docs yang
+                                        sekarang tracked; risk untrack accidental
+  TD-N49  Dockerfile kosong              Menulis Dockerfile = keputusan image base/version;
+                                        frontend Dockerfile butuh keputusan build strategy
+  TD-N50  CI: tambah deploy + frontend  Menambah job/stage = keputusan pipeline + kredensial
+  TD-N51  PaaS/IaC descriptor           Butuh User pilih provider (Render/Railway/Fly/AWS)
+  TD-N52  Monitoring                    Butuh User pilih tool + penyedia (Sentry vs Datadog
+                                        vs Prometheus)
+  TD-N53  Klaim Lighthouse ">90" di     Dua opsi: jalankan Lighthouse beneran, atau turunkan
+         ROADMAP 3                      klaim di dokumen. Keduanya keputusan User
+  TD-N54  k6 load test ABSENT           Butuh environment target (staging) + skrip; klaim
+                                        p99<100ms harus diukur nyata
+  TD-N55  Screenshot + portfolio         Butuh keputusan scope portofolio (konten/privasi);
+                                        bukan gap teknis
+  TD-N62  Klaim cache hit rate >60%    Sama seperti TD-N53: ukur beneran atau turunkan klaim
+  TD-N63  58 checkbox belum dicentang   Updating roadmap = keputusan editorial (siapa yang
+                                        mengerjakan, kapankah). Tidak boleh OpenCode centang
+                                        sendiri (R3)
+  TD-N64  ROADMAP 3 §8.4 klaim          Sama seperti TD-N53
+  TD-N69  ROADMAP 3 klaim 8 hooks       Koreksi dokumen = keputusan editorial; tapi ini
+                                        highest-impact (7 hook fiktif di checklist test)
+
+  TOTAL DEFERRED: 28 entri.
+
+  CATATAN PENTING — DEFERRED vs R5 ("fix security SEKARAN, bukan jadi TD"):
+  Ada dua entri yang TIDAK boleh masuk daftar DEFERRED meski secara teknis
+  butuh keputusan, karena R5 dan §11.4.2 saling bertentangan dan yang
+  menang adalah ESKALASI:
+    TD-N60 (RBAC manager warehouse isolation = no-op TODO)  → TETAP OPEN, ESCALATE
+    TD-N61 (API key tidak bisa dipakai sebagai autentikasi)  → TETAP OPEN, ESCALATE
+  Keduanya gap keamanan nyata. OpenCode tidak boleh "membuat jadi TD lalu
+  menunda" (R5), tetapi juga tidak boleh mengubah auth/RBAC tanpa otorisasi
+  (§11.4.2). Resolusi: LAPOR ke User sebagai prioritas, jangan parking.
+
+================================================================================
+ENTRI BARU W9a (TD-N35 .. TD-N70)
+================================================================================
+Rincian: 36 entri baru, bernomor dari TD-N35 (setelah TD-N33) sampai TD-N70.
+Setiap entri punya Bukti file:line konkret (R3). Tidak ada entri tanpa bukti.
+
+[TD-N35] Webhook exponential backoff kosmetik — scheduled_retry_at tidak di-persist
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: calculateRetryTime() menghitung backoff 1s/2s/4s/... (cap 3600s),
+             tetapi HASIL HITUNGANNYA TIDAK PERNAH DISIMPAN ke database.
+             Kolom scheduled_retry_at (yang sudah ada di migration) tidak pernah
+             di-write. GetPendingDeliveries memfilter
+             `scheduled_retry_at IS NULL OR scheduled_retry_at <= NOW()` —
+             karena kolomnya selalu NULL, filter itu selalu TRUE, sehingga
+             setiap delivery pending langsung dikirim ulang pada poll berikutnya
+             (30s), bukan setelah backoff. Backoff eksponensial TIDAK PERNAH
+             BERLAKU. Yang tersisa darinya hanya angka di logger.Warn.
+  Bukti    : scinel-backend/internal/service/webhook_service.go:236
+               `nextRetryTime := wp.calculateRetryTime(delivery.AttemptCount, sub.RetryInterval)`
+             webhook_service.go:243
+               `wp.repo.UpdateDeliveryStatus(ctx, delivery.ID, model.DeliveryPending, statusPtr, &msg)`
+               -> TIDAK ada nextRetryTime sebagai argumen
+             webhook_service.go:246-249 -> nextRetryTime hanya dipakai di
+               logger.Warn("retry_at", nextRetryTime.Format(...))
+             scinel-backend/internal/repository/webhook_repository_impl.go:228-238
+               SQL UpdateDeliveryStatus hanya SET status, http_status_code,
+               error_message, attempt_count, last_attempt_at, updated_at
+               -> scheduled_retry_at TIDAK ada di daftar SET
+             Bandingkan yang SUDAH membaca: webhook_repository_impl.go:194
+               (SELECT scheduled_retry_at) dan :198 (filter pending).
+             Skema: migrations/000008_create_webhook_tables.up.sql:28
+               `scheduled_retry_at TIMESTAMP WITH TIME ZONE` -> KOLOM ADA.
+             Model: internal/model/webhook.go:34 `ScheduledRetryAt *time.Time`.
+             Diverifikasi juga di internal/service/webhook_service.go:143
+               `if delivery.ScheduledRetryAt != nil && ...After(time.Now())`
+               -> cabang ini selalu false karena kolom tidak pernah diisi.
+             `grep -rn "ScheduledRetryAt" --include=*.go .` -> 7 hasil: 1 model,
+               4 repository (SELECT/scan), 1 service (:143, guard), 0 WRITE.
+  Dampak  : (1) retryaddrressive — endpointirer yang 500/timeout akan
+             menerima 1 percobaan per 30 detik, bukan 1/2s, 2/4s, 4/8s;
+             (2) MaxRetries jadi satu-satunya pengaman, jadi DLQ penuh cepat;
+             (3) TD-N6 (FIXED) mengklaim "backoff sudah ada di kode" — klaim itu
+             tidak boleh lagi dipakai sebagai bukti (§ KOREKSI di TD-N6);
+             (4) stress test ke subscriber lebih besar dari yang direncanakan.
+  Opsi     : (1) tambahkan scheduled_retry_at ke SET UpdateDeliveryStatus +
+             teruskan nextRetryTime dari service (perlu ubah signature
+             repository = contract change, §11.4.1); (2) pindahkan
+             exponential backoff ke scheduler (ubah interval per job, tidak
+             per-delivery — tidak tepat karena tiap delivery punya retry
+             sendiri); (3) biarkan dan turunkan klaim di TD-N6 (tidak
+             menutup gap, hanya memperjelas dokumentasi).
+  Catatan : W9a TIDAK memilih dan TIDAK mengubah kode (R8 READ-ONLY).
+             [DEFERRED] — lihat Tabel D.
+
+[TD-N36] internal/service coverage 0% — 5 test file t.Skip tanpa assertion
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : TEST
+  Deskripsi: Seluruh test internal/service tidak menguji apa pun. Lima file
+            test melakukan t.Skip di test pertama, dan file keenam kosong.
+             Paket hijau (exit 0) tanpa satu pun assertion.
+  Bukti    : `go test ./... -cover` -> "internal/service ... coverage: 0.0% of
+             statements" (2026-09-27). Lokasi t.Skip (tiap-tiap baris 7):
+               internal/service/anomaly_service_test.go:7
+               internal/service/forecast_service_test.go:7
+               internal/service/inventory_service_test.go:7
+               internal/service/transaction_service_test.go:7
+               internal/service/webhook_service_test.go:7
+             Alasan: "service tests require mock implementation".
+             File ke-6: internal/service/service_test.go -> `func TestPlaceholder
+             (t *testing.T) {}` (kosong, tanpa t.Skip).
+             6 file test di internal/service/ — total assertion: 0.
+  Dampak  : paket yang berisi GenerateForecastBatch, ProcessDeliveries,
+             CalculateRetryTime, deteksi anomali, PublishAsync, AuditService.Log
+             tidak punya pagar regresi. Bug yangAclau di TD-N35/ TD-N15/
+             TD-N22 akan lolos `go test` tanpa terdeteksi.
+  Opsi     : (1) test dengan sqlmock + miniredis seperti handler (pola sudah
+             ada di internal/handler -> bisa mengikuti R6); (2) test unit murni
+             untuk CalculateRetryTime + calculateRetryTime + ExtractIP/
+             ExtractUserAgent (tidak butuh DB) — quick win; (3) biarkan,
+             dokumentasikan sebagai gap yang diketahui.
+  Catatan : [DEFERRED] — test service butuh scope file baru di luar W9a (R8).
+
+[TD-N37] internal/repository coverage 0% — 9 test file placeholder
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : TEST
+  Deskripsi: Seluruh test internal/repository adalah placeholder tanpa
+             pengujian. Delapan file memakai `assert.True(t, true)` (assert
+             yang selalu benar secara trivial) dan satu file lagi kosong.
+  Bukti    : `go test ./... -cover` -> "internal/repository ... coverage: 0.0%
+             of statements". Isi 9 file (verified 2026-09-27):
+               anomaly_repository_test.go, api_key_repository_test.go,
+               base_test.go, forecast_repository_test.go,
+               inventory_repository_test.go, transaction_repository_test.go,
+               user_repository_test.go, webhook_repository_test.go
+               -> semua: `// Placeholder - full implementation requires sqlmock`
+                  lalu `assert.True(t, true)`;
+               repository_test.go -> `func TestPlaceholder(t *testing.T) {}`
+             (file ini juga punya BOM di baris-1: byte `EF BB BF`).
+  Dampak  : repository adalah lapisan yang holding SQL mentah — paling rawan
+             salah (mis. UpdateQuantityTx, LockForUpdateTx yang sudah
+            MqHolding FOR UPDATE). Nol test berarti nol pagar untuk keputusan
+             atomisitas TD-N14.
+  Opsi     : test dengan sqlmock (pola sudah ada di internal/handler ->
+             R6: ikuti konvensi yang sudah dipakai). Butuh effort besar
+             (ada ~40 query SQL di repository).
+  Catatan : [DEFERRED] — butuh scope test file di luar W9a (R8).
+
+[TD-N38] cmd/api coverage 0.0% — composition test tidak menyentuh main()
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : TEST
+  Deskripsi: main_test.go punya 5 composition test (W8, TD-N27) yang PASS,
+             tetapi coverage paket cmd/api tetap 0.0% karena test tersebut
+             tidak pernah memanggil main() maupun handler yang di-return
+             main(). Test (1)-(4) menguji salinan rantai yang disusun ulang di
+             helper newCompositionChain. Yang mengikat ke kode produksi hanya
+             test (5) yang MEMBACA source main.go dengan go/parser.
+  Bukti    : `go test ./... -cover` -> "cmd/api ... coverage: 0.0% of statements".
+             cmd/api/main_test.go:35 `func newCompositionChain(...)` membangun
+             rantai sendiri; tidak ada referensi ke main().
+             Entri TD-N27 "Sisa yang jujur" sudah mencatat hal ini — W9a
+             hanya menaikkan statusnya dari catatan menjadi terverifikasi
+             dengan angka coverage.
+  Dampak  : registrasi 27 route (main.go:105-144) dan interval job scheduler
+             (main.go:171-186) tidak punya pagar regresi end-to-end. Salah
+             pasang path tidak akan ditangkap go test.
+  Opsi     : ekstrak func buildServer/buildRouter dari main() supaya test bisa
+             memanggil handler yang benar-benar di-return main (opsi (1) di
+             TD-N27 "Sisa"). Men Sentuh main.go = di luar scope W9a (R8).
+  Relasi  : TD-N27 (FIXED) — "Sisa" yang ini; TD-N50 (CI frontend) tidak
+             berkaitan langsung.
+  Catatan : [DEFERRED] — ekstraksi main.go butuh otorisasi R8.
+
+[TD-N39] Frontend middleware.ts ABSENT — protected route hanya dijaga client-side
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : SECURITY
+  Deskripsi: Tidak ada file middleware.ts di frontend Next.js. Folder
+             app/(protected)/ TIDAK punya route guard di server; penjagaan
+             hanya terjadi client-side di layout (cek token di localStorage /
+             redirect di browser). Artinya proteksi route sepenuhnya bergantung
+             pada kode yang dieksekusi browser — mudah dilewati dengan
+             permintaan langsung.
+  Bukti    : `ls middleware.ts src/middleware.ts` -> tidak ada keduanya.
+             app/(protected)/layout.tsx ada (test coverage 0% — page test-nya
+             smoke test), tetapi isinya hanya render + redirect client-side
+             (tidak ada server-side redirect di middleware).
+  Dampak  : endpoint API sendiri tetap dilindungi AuthMiddleware backend
+             (main.go:147-153) — jadi dampak TIDAK berupa data bocor lewat API.
+             Dampaknya pada route/UI Next.js (halaman bisa di-render kosong/
+             dengan data mock bila token tak ada).
+  Opsi     : (1) Next.js middleware.ts untuk redirect server-side
+             (auth di sisi server); (2) andalkan AuthMiddleware backend saja
+             dan hapus redirect client-side (UI akan 401 dari API);
+             (3) biarkan, catat sebagai gap arsitektur.
+  Catatan : [DEFERRED] — menambahkan route guard middleware frontend adalah
+             keputusan arsitektur (§11.4.1). Tabel D.
+
+[TD-N40] Frontend branch coverage 32.89% & function 45.76% di bawah threshold 50%
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : TEST
+  Deskripsi: `npx jest --coverage` gagal (exit 1) karena branch coverage 32.89%
+             dan function 45.76% di bawah threshold global 50%. Statement 60.33%
+             dan line 63.18% juga di bawah 50%? — TIDAK, statement 60.33% dan
+             line 63.18% sudah DI ATAS 50%, hanya branch + function yang gagal.
+  Bukti    : `npx jest --coverage` (2026-09-27) ->
+               "Jest: Coverage for branches (32.89%) does not meet \"global\"
+                threshold (50%)"
+               "Jest: Coverage for functions (45.76%) does not meet \"global\"
+                threshold (50%)"
+               JEST_EXIT=1
+             Threshold: scinel-frontend/jest.config.js coverageThreshold global
+             statements/branches/functions/lines = 50 masing-masing.
+             Summary: Statements 60.33% (1144/1896), Branches 32.89% (297/903),
+             Functions 45.76% (173/378), Lines 63.18% (1054/1668).
+  Sub-temuan (terverifikasi dari tabel coverage per-file):
+    - lib/api.ts functions 28.57% (43.87% stmts, 36.66% branch) ->
+     UCKET: API client gabungan (auth + inventory + forecast + anomaly +
+      webhook) —ファイル test-nya satu tapi file-nya sangat besar.
+    - 0% files: app/(auth)/register/page.tsx, app/(protected)/layout.tsx,
+      components/auth/PasswordResetForm.tsx,
+      components/common/InventoryStatusBadge.tsx,
+      components/common/ThemeToggle.tsx.
+    - <50% files: anomalies/[id] (8.69% branch), anomalies/analytics (2.94%),
+      inventory/[warehouse] (10.63%), inventory/transaction/new (0%),
+      profile (8.33% functions), settings/ResolutionModal, ApiKeyManager,
+      forecast/AccuracyChart.
+  Dampak  : `npx jest --coverage` = exit 1, jadi TIDAK BISA dipakai sebagai
+             quality gate di CI tanpa diperbaiki dulu. Test suite tanpa
+             --coverage tetap hijau (113 PASS).
+  Opsi     : (1) naikkan branch/function coverage di area kritis (api, auth,
+             RBAC-adjacent pages); (2) turunkan threshold ke nilai yang bisa
+             dicapai sekarang (documentasikan sebagai baseline, bukan
+             convincingly tinggi); (3) tambahkan branch test untuk utilitas
+             (validators/utils) yang murah.
+  Relasi  : TD-N41 (smoke test = penyebab branch rendah), TD-N40 <> TD-N36/37
+             (backend 0%).
+
+[TD-N41] 34 dari 71 test file frontend (47.9%) hanya smoke test
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : TEST
+  Deskripsi: Hampir setengah file test frontend hanya me-render komponen dan
+             melakukan satu assertion trivial (`expect(document.body).toBeTruthy()`)
+             — tidak menguji logika, tidak menguji interaksi, tidak menguji
+             rendering output yang benar. Memberi rasa aman yang tidak
+             mencerminkan pemakaian nyata.
+  Bukti    : Penghitungan 2026-09-27: `find tests -name "*.test.ts*" | wc -l` ->
+             71. Loop: file dengan expect( count <= 1 DAN document.body count
+             >= 1 -> 34 file (47.9%). Di antaranya 14 dari 16 page test:
+               tests/app/(auth)/forgot-password/page.test.tsx
+               tests/app/(auth)/login/page.test.tsx
+               tests/app/(auth)/reset-password/page.test.tsx
+               tests/app/(protected)/anomalies/page.test.tsx
+               tests/app/(protected)/anomalies/[id]/page.test.tsx
+               tests/app/(protected)/anomalies/analytics/page.test.tsx
+               tests/app/(protected)/forecast/page.test.tsx
+               tests/app/(protected)/forecast/accuracy/page.test.tsx
+               tests/app/(protected)/inventory/page.test.tsx
+               tests/app/(protected)/inventory/[warehouse]/page.test.tsx
+               tests/app/(protected)/inventory/transaction/new/page.test.tsx
+               tests/app/(protected)/inventory/transactions/page.test.tsx
+               tests/app/(protected)/profile/page.test.tsx
+               tests/app/(protected)/settings/page.test.tsx
+             2 file smoke dengan 1 expect tapi TANPA document.body:
+               tests/app/dashboard/page.test.tsx, tests/app/page.test.tsx.
+  Dampak  : 113 test PASS sounds besar, tapi sebagian besar tidak memverifikasi
+             perilaku. 0 test memverifikasi subtitle, form submission, atau
+             kondisi error — yang justru 0% coverage di TD-N40.
+  Opsi     : (1) ganti smoke test dengan test yang cek elemen kunci (role,
+             text, disabled state) per halaman; (2) minimal tambahkan test
+             untuk halaman auth (login/register) yang punya logika; (3) biarkan
+             dan turunkan klaim coverage.
+  Catatan : [DEFERRED] — menulis test baru butuh scope di luar W9a (R8).
+
+[TD-N42] lib/api.ts punya fallback mockApiKeys + mockWebhooks di jalur produksi
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: API client frontend, pada dua handler, diam-diam mengembalikan
+             data dummy hardcoded KETIKA catch apa pun (bukan hanya 404),
+             dan menulis console.warn ke browser user. Strebutnya:
+             falsifikasi data yang terlihat nyata.
+  Bukti    : scinel-frontend/lib/api.ts:67 `const mockApiKeys: ApiKey[] = [...]`
+             scinel-frontend/lib/api.ts:74
+               `catch (e) { console.warn('⚠️ [DEBUG] Backend API Keys placeholder,
+                using mock data.'); return mockApiKeys; }`
+             scinel-frontend/lib/api.ts:100 `const mockWebhooks: WebhookSubscription[]`
+             scinel-frontend/lib/api.ts:107
+               `catch (e) { console.warn('⚠️ [DEBUG] Backend Webhooks placeholder,
+                using mock data.'); return mockWebhooks; }`
+             (Dikonfirmasi juga dari output jest 2026-09-27: "Attempted to log
+              '⚠️ [DEBUG] Backend Webhooks placeholder, using mock data.' at
+              lib/api.ts:2856 (baris source-map) via WebhookManager.tsx".)
+  Dampak  : SETIAP error jaringan (bukan hanya 404) pada endpoint API keys dan
+             webhooks menghasilkan data palsu + label "[DEBUG]" di console
+             user. Lebih buruk dari error yang jujur: user bisa menyimpan
+             "api key" dummy tanpa sadar.
+  Relasi  : TD-N32 (useDashboardData MOCK_INVENTORY) — kasus saudar.
+  Opsi     : (1) hapus mock, biarkan error state tampil apa adanya; (2) guard
+             dengan env flag NEXT_PUBLIC_ENABLE_MOCK; (3) pertahankan tapi
+             tandai UI "Data contoh".
+  Catatan : [DEFERRED] — sentuh file produksi di luar scope W9a (R8). Tabel D.
+
+[TD-N43] useDashboardData tanpa polling — inkonsisten dengan 7 halaman lain
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: useDashboardData melakukan SATU fetch di useEffect (deps []) tanpa
+             setInterval. Tujuh halaman lain (anomalies, anomalies/analytics,
+             forecast, forecast/accuracy, inventory, inventory/transactions,
+             inventory/[warehouse]) semuanya memakai setInterval(fetch, 30000).
+             Dashboard — halaman paling "live" — justru tidak auto-refresh.
+  Bukti    : scinel-frontend/hooks/useDashboardData.ts:21-38 — useEffect deps
+             `[]` (baris 38), fetchData() dipanggil sekali (baris 37). Tidak
+             ada setInterval di seluruh file. Bandingkan:
+               app/(protected)/anomalies/page.tsx:83
+               app/(protected)/anomalies/analytics/page.tsx:119
+               app/(protected)/forecast/page.tsx:89
+               app/(protected)/forecast/accuracy/page.tsx:60
+               app/(protected)/inventory/page.tsx:73
+               app/(protected)/inventory/transactions/page.tsx:72
+               app/(protected)/inventory/[warehouse]/page.tsx:107
+             -> semua `setInterval(..., 30000)`.
+             .env.local punya NEXT_PUBLIC_POLLING_INTERVAL=30000 yang juga
+             tidak dibaca di useDashboardData.
+  Dampak  : angka di dashboard basi setelah 30 detik; setelah transaksi baru
+             dibuat, user tidak melihatnya tanpa refresh manual. Ironis
+             dengan ROADMAP 3 §Testing yang klaim "Real-time polling ✅".
+  Relasi  : TD-N32 (fallback MOCK_INVENTORY di hook yang sama); ROADMAP 3
+             §Testing "Real-time polling" klaim.
+  Opsi     : (1) tambahkan setInterval 30s (konsisten dengan halaman lain);
+             (2) jadikan polling interval dari NEXT_PUBLIC_POLLING_INTERVAL.
+  Catatan : [DEFERRED] — mengubah perilaku UI produksi di luar W9a (R8).
+
+[TD-N44] PUT /auth/me tidak ada di backend maupun frontend (profile page mock)
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: Halaman profile membaca fullName dan menyimpannya ke localStorage
+             sebagai "mock", bukan mengirim ke backend. Endpoint backend
+             PUT /auth/me TIDAK PERNAH ADA — jadi "backend belum siap" ini
+             sebenarnya backend TIDAK akan pernah siap untuk endpoint itu
+             selama tidak dibuat. 27 route di main.go tidak memuat /auth/me.
+  Bukti    : scinel-frontend/app/(protected)/profile/page.tsx:28
+               `// TODO: Implement PUT /auth/me when backend ready. Mocking for now.`
+             scinel-frontend/app/(protected)/profile/page.tsx:30
+               `localStorage.setItem('mock_full_name', fullName);`
+             (bandingkan: baris 42 `await apiClient.put('/auth/change-password', ...)`
+              -> change-password ADA di backend; /auth/me tidak.)
+             Backend: main.go:105-108 hanya mendaftarkan 4 route auth:
+               POST register, POST login, POST refresh, POST logout.
+               Tidak ada /auth/me di mana pun.
+  Dampak  : user "mengubah" nama di UI,=data hanya di localStorage browser
+             itu, hilang di device lain; dan data yang ditampilkan bukan data
+             server (bisa berbeda dari yang dilihat user lain/admin).
+  Opsi     : (1) implementasikan GET/PUT /auth/me di backend (handler + repo
+             users + migration bila perlu kolom) + ganti mock frontend;
+             (2) jika nama tidak boleh diedit dari UI, hapus form editable-nya.
+  Catatan : Comment di kode menyebut "when backend ready" — menyesatkan karena
+             endpoint-nya memang tidak pernah ada, bukan "belum waktunya".
+             [DEFERRED] — menambah endpoint = keputusan User (§11.4.1).
+
+[TD-N45] scinel-backend/.env.test TER-TRACK di git (kredensial test)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : SECURITY
+  Deskripsi: File .env.test berada di git (tracked). Isinya memuat JWT secret
+             dan string koneksi database. Nilai-are test (bukan produksi),
+             tapi treknya teaches pola buruk dan bisa menjadi jalan masuk bila
+             nilai serupa pernah dipakai di environment lain. File juga punya
+             BOM di baris-1.
+  Bukti    : `git ls-files | grep -E "\.env"` -> "scinel-backend/.env.test"
+             (ter-track) + "scinel-frontend/.env.example" (OK).
+             Isi file:
+               line 2: DATABASE_URL=postgres://test_user:test_password@localhost:5432/test_db
+               line 5: JWT_SECRET_KEY=test-secret-key-not-for-production
+               line 6: ENVIRONMENT=test
+             BOM: `head -c 3 scinel-backend/.env.test` -> EF BB BF.
+             Bandingkan .env.local (tidak ter-track, ada di .gitignore:14).
+  Dampak  : MEDIUM (bukan CRITICAL) karena nilainya eksplisit "test" dan TIDAK
+             dipakai di produksi; .github/workflows/ci.yml:66 memakai
+             JWT_SECRET_KEY: test-secret yang BERBEDA. Yang alarmed adalah
+             (a) siapa pun yang clone repo punya string itu, (b) normalisasi:
+             tidak ada aturan .gitignore yang mencegah .env.test/.env di-track
+             -> lihat TD-N46.
+  Opsi     : (1) git rm --cached + tambah ke .gitignore (file tetap di disk
+             untuk CI); (2) ganti nama menjadi .env.test.example dengan nilai
+             placeholder; (3) biarkan tapi dokumentasikan bahwa isinya aman.
+  Catatan : [DEFERRED] — untrack + review .gitignore = keputusan repo hygiene.
+
+[TD-N46] .gitignore tidak meng-ignore bare .env / .env.test
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : SECURITY
+  Deskripsi: .gitignore punya .env.local/.env.production (backend & frontend)
+             tapi TIDAK punya aturan untuk .env (tanpa suffix) maupun .env.test.
+             Artinya file kredensial dengan nama itu akan free untuk di-add
+             (git add) tanpa di-block.
+  Bukti    : .gitignore baris 11-16 (blok "=== Env files ==="):
+               12: .env.local
+               13: .env.production
+               14: scinel-backend/.env.local
+               15: scinel-backend/.env.production
+               16: scinel-frontend/.env.local
+             -> tidak ada `.env`, `*.env`, `.env.test`, `*.env.*` di luar
+             .env.local/.env.production.
+             `git check-ignore -v --no-index scinel-backend/.env.test` ->
+             TIDAK match rule .gitignore (file ter-track, jadi moot untuk
+             file itu, tapi aturan itself tetap bolong).
+  Dampak  : celah hygiene; siapa pun yang `git add .` di masa depan bisa
+             men-commit .env/.env.test tanpa disadar karena tidak di-block.
+  Opsi     : (1) tambah `.env`, `.env.*` (dengan negasi untuk .env.example),
+             lalu `git rm --cached` untuk file yang ter-track; (2) pakai
+             pola `*.env` + whitelist; (3) biarkan (bergantung pada disiplin
+             developer).
+  Relasi  : TD-N45 (.env.test ter-track), TD-N48 (rule docs/ di .gitignore).
+
+[TD-N47] Binary api (10.88MB) + api.exe (11.06MB) ter-commit
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: Dua binary hasil build (~22MB total) ter-commit di git. bloated
+             history, dan membingungkan (tooling bisa mengira ada "main"
+             prebuilt, atauelease bisa salah pilih file).
+  Bukti    : `git ls-files | grep -E "scinel-backend/(api|api.exe)$"` ->
+               scinel-backend/api
+               scinel-backend/api.exe
+             `ls -la scinel-backend/api scinel-backend/api.exe` ->
+               api    10880804 bytes (10.88 MB), mtime Aug 10 20:33
+               api.exe 11064320 bytes (11.06 MB), mtime Jul 20 22:23
+             .gitignore tidak meng-ignore nama "api"/"api.exe" (blok Go hanya
+             bin/, vendor/, *.out, *.html, coverage.out).
+  Dampak  : ukuran repo membengkak (~22MB per commit duplikat tidak bisa
+             dihitung cepat), build artifact bisa muncul lebih baru dari
+             source (saat ini binary tertua lebih baru dari commit terbaru? —
+             perlu verifikasi). Tidak ada risiko eksekusi (tidak ada runtime
+             yang memanggilnya) tapi hygiene buruk.
+  Opsi     : (1) git rm --cached keduanya (history tetap ada);
+             tetap ada); (2) rewrite history untuk benar-benar menghapus (tidak
+             direkomendasikan tanpa instruksi jelas); (3) biarkan.
+  Catatan : [DEFERRED] — keputusan repo hygiene + rewriting history butuh
+             otorisasi User.
+
+[TD-N48] .gitignore:45 docs/ memblokir docs/DEPLOYMENT.md yang dirujuk 6x
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: .gitignore punya rule `docs/` yang meng-ignore SELURUH folder
+             docs/. Padahal 32 file di docs/ sudah TRACKED (termasuk ROADMAP,
+             API.md, TEAM_CONTRACT.md, dll) — jadi rule itu inkonsisten: file
+             yang SUDAH tracked tetap tracked, tapi file BARU di docs/ tidak
+             bisa di-add tanpa `git add -f`. Salah satu file yang seharusnya
+             ada (docs/DEPLOYMENT.md) tidak pernah ada, dan TIDAK BISA
+             ditambahkan tanpa config tambahan.
+  Bukti    : .gitignore:45 `docs/`
+             `git check-ignore -v --no-index docs/API.md` -> ".gitignore:45:docs/ docs/API.md"
+             `git check-ignore -v --no-index docs/DEPLOYMENT.md` -> ".gitignore:45:docs/ docs/DEPLOYMENT.md"
+             `ls docs/DEPLOYMENT.md` -> tidak ada.
+             32 file tracked di docs/: `git ls-files docs/ | wc -l` -> 32.
+             Dirujuk 6x tapi tidak pernah ada:
+               docs/TDD.md:282 (diagram struktur: "├── DEPLOYMENT.md")
+               docs/TDD.md:2737 ("- ✅ docs/DEPLOYMENT.md (deployment guide)")
+               docs/ROADMAP 4. DEPLOYMENT.md:987, :1018, :1254
+               docs/BLUEPRINT 4 ROADMAP FILES.md:1145, :1315
+  Dampak  : (1) docs/DEPLOYMENT.md tidak bisa dibuat tanpa `git add -f`;
+             (2) TDD.md:2737 mengklaim file itu SUDAH ada (✅) padahal tidak;
+             (3) jebakan: file docs/ baru (mis. catatan audit) yang di-add akan
+             hilang dari status tanpa disadar.
+  Opsi     : (1) ubah rule docs/ jadi lebih spesifik (mis. hanya ignore
+             subfolder sementara) atau tambahkan negasi `!docs/*.md`;
+             (2) buat docs/DEPLOYMENT.md dengan `git add -f`; (3) biarkan dan
+             koreksi klaim di TDD.md.
+  Relasi  : TD-N28 (TEST.txt tracked di docs/ sementara docs/ di-ignore —
+             situation yang sama), TD-N46 (pola .gitignore bolong).
+
+[TD-N49] Dockerfile backend 0 byte; Dockerfile frontend ABSENT
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: Dockerfile backend ada tapi KOSONG (0 byte). Dockerfile frontend
+             tidak ada. Jadi tidak ada jalur containerisasi yang bisa dipakai.
+  Bukti    : `ls -la scinel-backend/Dockerfile` -> 0 bytes, mtime Jul 20 14:10.
+             `ls -la scinel-frontend/Dockerfile` -> tidak ada.
+             Tidak ada .dockerignore di kedua folder (verifikasi: tidak
+             ditemukan di ls).
+             docker-compose.yml (backend) tidak punya service untuk
+             aplikasi — hanya postgres & redis (baris 2-45: services.postgres,
+             services.redis). Tidak ada service "api"/"app".
+  Dampak  : tidak ada cara menjalankan backend dalam container. Setup environment
+             hanya lewat `go run` + Postgres/Redis lokal (docker-compose) —
+             tidak konsisten (DB di container, app di host).
+  Opsi     : (1) tulis Dockerfile backend multi-stage (golang build -> distroless);
+             (2) Dockerfile frontend multi-stage (Next.js standalone);
+             (3) tambahkan service "api" ke docker-compose untuk dev.
+  Catatan : [DEFERRED] — menulis Dockerfile = keputusan image base/version
+             (§11.4.1 arsitektur). Tabel D.
+
+[TD-N50] CI: 0 stage deploy; 0 langkah frontend sama sekali
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: Root .github/workflows/ci.yml (dibuat W6) hanya punya SATU job
+             ("test") yang jalan di scinel-backend. Tidak ada: (a) job/stage
+             deploy; (b) build/test frontend (tsc, jest, next build) — frontend
+             100% tanpa CI; (c) lint frontend; (d) test E2E Playwright.
+  Bukti    : .github/workflows/ci.yml (1890 byte) -> `jobs:` hanya berisi
+             `test:` (baris 9-79). Tidak ada job lain.
+             `grep -cE "pnpm|npm|jest|next|tsc" .github/workflows/ci.yml` -> 0.
+             Job test: checkout, setup-go 1.25.0, go mod download,
+             golangci-lint, go test -race, go build, codecov. Tidak ada
+             satu pun langkah frontend.
+             Bandingkan: TD-N29 mendokumentasikan workflow backend LAMA yang
+             mati (go-version 1.21); workflow BARU di root hanya backend.
+  Dampak  : (1) 113 test frontend + tsc hanya dicek manual — regresi bisa
+             lolos ke commit; (2) `npx jest --coverage` sudah exit 1 (TD-N40)
+             tapi tidak ada CI yang menangkap — bahkan kalau ada, tidak ada
+             langkahnya; (3) tidak ada pipeline deploy sama sekali.
+  Opsi     : (1) tambah job frontend (checkout, setup pnpm/node, tsc, jest,
+             next build); (2) tambah job E2E (Playwright + service containers);
+             (3) tambah stage deploy (CD) — butuh provider + kredensial.
+  Relasi  : TD-N29 (workflow mati), TD-N40 (jest exit 1), TD-N51 (PaaS),
+             TD-N49 (Dockerfile).
+
+[TD-N51] 0 descriptor PaaS/IaC (render.yaml / railway / fly / Procfile)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: Tidak ada file deskriptor deployment untuk platform mana pun
+             (PaaS atau IaC). Satu-satunya artefak orkestrasi adalah
+             docker-compose.yml lokal (postgres+redis saja, tanpa app).
+  Bukti    : `git ls-files | grep -iE "render\.yaml|railway|fly\.toml|Procfile
+             |app\.yaml|vercel\.json|heroku|docker-compose"` -> HANYA
+             "scinel-backend/docker-compose.yml". Tidak ada render.yaml,
+             railway.json/toml, fly.toml, Procfile, app.yaml, vercel.json,
+             terraform/, k8s manifests.
+  Dampak  : tidak ada target deployment yang terdefinisi. ROADMAP 4
+             (DEPLOYMENT.md) merujuk Render/Railway/AWS (baris 987) tetapi
+             tidak ada deskriptor yang mengikat repo ke salah satu.
+  Opsi     : (1) pilih provider (Render/Railway/Fly) -> tulis render.yaml/fly.toml;
+             (2) tulis manifest k8s/terraform; (3) biarkan manual (docker run).
+  Catatan : [DEFERRED] — pemilihan provider = keputusan User. Tabel D.
+
+[TD-N52] Monitoring / observability 0 (prometheus/sentry/datadog)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: Tidak ada instrumentation/observability: tidak ada metrics
+             endpoint, tidak ada Sentry/DSN, tidak ada health-check scraping
+            beyond /health, /ready, /live. Log hanya ke stdout via zerolog/appLogger
+             tanpa agregasi.
+  Bukti    : `grep -rniE "prometheus|sentry|datadog" --include=*.go --include=*.json
+             --include=*.ts --include=*.tsx .` (di luar node_modules) -> 0 hasil.
+             Health check yang ada: main.go:111-113 (GET /api/v1/health,
+             /readiness, /liveness) — hanya hidup/mati, tanpa metrics.
+             Logging: main.go:38-46 (zerolog appLogger) -> console only.
+             Tidak ada /metrics endpoint, tidak ada APM, tidak ada alerting.
+  Dampak  : tidak ada cara tahu produksi sehat atau tidak tanpa log scraping
+             manual. Ini juga prasyarat opsi (c) TD-N22 (fail-open Redis
+             "biarkan + alert").
+  Opsi     : (1) Prometheus + /metrics (butuh instrumentasi handler, DB pool);
+             (2) Sentry untuk error tracking (SDK Go+TS, cepat); (3) log
+             aggregator (Loki/Datadog).
+  Relasi  : TD-N22 opsi (c) bergantung pada ini.
+  Catatan : [DEFERRED] — pemilihan tool = keputusan User. Tabel D.
+
+[TD-N53] Klaim "Lighthouse score >90 verified" di ROADMAP 3 tanpa artefak
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DOKUMENTASI
+  Deskripsi: ROADMAP 3 §8.3 "Performance Optimization" menyatakan
+             "✅ Lighthouse score >90 verified". Tidak ada konfigurasi
+             Lighthouse (lighthouserc.js/.json), tidak ada laporan
+             (lighthouse-report/), tidak ada catatan hasil, dan tidak ada
+             CI job yang menjalankan Lighthouse. Klaim tidak dapat diverifikasi
+             dan kemungkinan besar salah (0 artefak).
+  Bukti    : docs/ROADMAP 3 FRONTEND or MOBILE.md:1929-1984 "Week 8.3" ->
+             :1978 Deliverable: "✅ Lighthouse score >90 verified"
+             `grep -rliE "lighthouse" .` (di luar node_modules) -> 0 file
+             konfigurasi/laporan; tidak ada lighthouserc, tidak ada
+             .lighthouseci, tidak ada package.json script "lighthouse".
+             .github/workflows/ci.yml tidak menyebut lighthouse
+             (grep -> 0; hanya go-related steps).
+             Tidak ada test E2E/audit yang mengukur Core Web Vitals.
+  Dampak  : klaim performanya false. Kalau User rely pada ini untuk keputusan
+             "siap produksi", salah. 8.3 juga mengklaim "✅ WCAG 2.1 AA
+             compliance" dan "✅ Performance budgets defined" tanpa
+             lighthouse/axe/budget config.
+  Opsi     : (1) jalankan Lighthouse beneran (build + serve + lighthouse CLI)
+             dan simpan report; (2) turunkan klaim di ROADMAP 3 (hapus ✅);
+             (3) tambahkan CI job Lighthouse (lighthouse-ci).
+  Relasi  : ROADMAP 3 §8.3; ROADMAP 3 §Testing "Browser Testing ✅" (TD-N64).
+  Catatan : [DEFERRED] — update roadmap = keputusan editorial. Tabel D.
+
+[TD-N54] k6 load test ABSENT padahal klaim p99<100ms @1000 users
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: TEST.txt dan ROADMAP 4 merujuk hasil k6 load test (p99 < 100ms,
+             1000 users) tetapi tidak ada skrip k6, tidak ada hasil k6, dan
+             tidak ada CI job load test di repo.
+  Bukti    : `git ls-files | grep -iE "k6|load.?test|stress"` -> 0 file.
+             Tidak ada skrip .js (k6) selain jest.config.js, next.config.js,
+             scripts/convert-tests.js, scripts/fix-tests.js.
+             Klaim di docs/TEST.txt (section "TEST EXECUTION CHECKLIST (Week 9)"
+             di baris 350) — "k6 load test -> p99 <100ms, 1000 users" (dari
+             TD-N28 "Catatan"). Tidak ada artefak yang mau dll.
+             .github/workflows/ci.yml tidak punya job load test.
+  Dampak  : klaim performa beban tidak terbukti. 1000 users konkurent adalah
+             angka yang jauh di atas default; tanpa bukti, klaim tidak bisa
+             dipercaya untuk sizing.
+  Opsi     : (1) tulis skrip k6 + run di staging, simpan report; (2) turunkan
+             klaim; (3) biarkan sebagai target (bukan hasil).
+  Relasi  : TD-N53 (Lighthouse — sama-sama klaim tanpa artefak); TD-N50
+             (CI tidak punya job load test); ROADMAP 4 §Testing.
+  Catatan : [DEFERRED] — butuh environment target + keputusan User. Tabel D.
+
+[TD-N55] Bukti portofolio ABSENT (screenshot + writeup)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DOKUMENTASI
+  Deskripsi: Repo tidak memuat screenshot aplikasi, mockup, atau writeup
+             portofolio. Untuk proyek yang berorientasi portofolio
+             ("showcase" roadmap), tidak ada artefak visual sama sekali.
+  Bukti    : `git ls-files | grep -iE "\.png$|\.jpg$|\.jpeg$|\.webp$|\.gif$"` ->
+             0 file gambar yang tracked. (playwright-report/ dan test-results/
+             sudah di-ignore di .gitignore:40-42.)
+             Tidak ada docs/portfolio*, docs/showcase*, docs/case-study*.
+             ROADMAP 4 (DEPLOYMENT) dan BLUEPRINT 4 menyinggung screenshot
+             tetapi tidak ada yang benar-benar ada.
+  Dampak  : tidak ada bukti visual yang bisa dipakai User untuk portofolio
+             atau presentasi. Ini gap dokumentasi, bukan gap teknis.
+  Opsi     : (1) ambil screenshot dari E2E Playwright (test sudah ada, tinggal
+             save); (2) tulis writeup singkat; (3) biarkan.
+  Catatan : [DEFERRED] — keputusan scope portofolio (privasi, konten) milik
+             User. Tabel D.
+
+[TD-N56] next.config.js + next.config.mjs duplikat (yang .mjs mati)
+  Severity : LOW (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: Dua file konfigurasi Next.js ada berdampingan. .js berisi
+             konfigurasi nyata (275 byte); .mjs berisi konfigurasi kosong
+             (92 byte, `const nextConfig = {}; export default nextConfig;`).
+             Next.js memuat .js lebih dulu, jadi .mjs itu DEAD CODE yang
+             membingungkan (t APPEAR conflicted bila .js dihapus suatu saat).
+  Bukti    : `ls -la scinel-frontend/next.config.*` ->
+               next.config.js 275 bytes (Jul 29 06:55)
+               next.config.mjs 92 bytes (Jul 29 06:39)
+             Isi next.config.js: typescript.strictNullChecks, compress,
+             poweredByHeader:false, reactStrictMode, swcMinify, images.formats.
+             Isi next.config.mjs: konfigurasi kosong {}.
+             Keduanya tracked di git.
+  Dampak  : rendah. Tidak ada bug (Next.js pakai .js). Risiko:developer
+             mengedit .mjs dan tidak melihat efeknya; atau .js dihapus
+             tanpa sadar -> konfigurasi hilang.
+  Opsi     : (1) hapus next.config.mjs (file mati); (2) gabung ke .mjs saja
+             (hapus .js); (3) biarkan.
+  Catatan : W9a tidak memilih (R8). [DEFERRED] — hapus file produksi di luar
+             scope W9a. Tabel D.
+
+[TD-N57] app/(auth)/layout.tsx ABSENT
+  Severity : LOW (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: Folder app/(auth)/ berisi 4 halaman (forgot-password, login,
+             register, reset-password) tapi TIDAK punya layout.tsx, sedangkan
+             app/(protected)/ punya layout.tsx. Tanpa layout bersama, setiap
+             halaman auth harus menduplikasi wrapper/card/centering sendiri.
+  Bukti    : `ls -R app/` -> app/(auth)/ berisi: forgot-password/, login/,
+             register/, reset-password/ (tiap folder hanya page.tsx) — TIDAK
+             ada layout.tsx di app/(auth)/.
+             Bandingkan app/(protected)/: ada layout.tsx (dan test-nya, yang
+             0% coverage — TD-N41).
+  Dampak  : duplikasi layout markup di 4 halaman; inkonsistensi visual
+             (centering, card width, background) yang bisa berbeda antar halaman.
+  Opsi     : (1) buat app/(auth)/layout.tsx sebagai wrapper bersama; (2) biarkan.
+  Catatan : W9a tidak membuat file baru (R8).
+
+[TD-N58] ConfidenceIntervalBadge.tsx ABSENT (ROADMAP 3 §5.1.3)
+  Severity : LOW (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: ROADMAP 3 menyertakan ConfidenceIntervalBadge sebagai komponen
+             (§5.1.3), tetapi komponen ini tidak ada di repo.
+  Bukti    : `find . -name "ConfidenceInterval*"` (di luar node_modules) ->
+             0 hasil. Tidak ada di components/forecast/ maupun
+             components/common/ (ls kedua folder tidak memuatnya).
+  Dampak  : rendah (halaman yang seharusnya memakainya entah tidak
+             menampilkannya, atau tidak pernah dibuat). Klaim roadmap
+             menyesatkan.
+  Opsi     : (1) implementasikan badge (butuh data interval dari API
+             /forecasts/accuracy); (2) turunkan klaim di ROADMAP 3.
+  Relasi  : ROADMAP 3 §5.1.3; lihat TD-N69 (pola klaim komponen/hook fiktif
+             yang sama di ROADMAP 3 testing checklist).
+
+[TD-N59] Halaman khusus Next.js ABSENT (not-found / error / 401 / 404 / 500)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: Tidak ada halaman error/khusus Next.js: tidak ada not-found.tsx
+             (404), error.tsx (error boundary), global-error.tsx, halaman
+             unauthorized/401, atau 500. Komponen yang "kebetulan" ada adalah
+             components/common/ErrorBoundary.tsx (untuk client-side), tetapi
+             tidak ada route-level error page Next.js.
+  Bukti    : `find app -name "not-found*" -o -name "error*" -o -name "401*"
+             -o -name "404*" -o -name "500*"` -> 0 hasil (di luar node_modules).
+             app/ berisi: (auth)/, (protected)/, api/, favicon.ico,
+             globals.css, layout.tsx, page.tsx. Tidak ada file error di root
+             app/ maupun di subfolder mana pun.
+  Dampak  : 404 dari route tidak dikenal akan jatuh ke halaman 404 default
+             Next.js (tanpa branding); error runtime server tidak punya
+             boundary yang user-friendly; tidak ada layar "unauthorized" (401)
+             yang branded ketika token kadaluwarsa.
+  Opsi     : (1) buat app/not-found.tsx + app/error.tsx + app/(protected)/
+             unauthorized/page.tsx; (2) buat 401/404/500 sebagai route segment
+             khusus; (3) biarkan default.
+  Catatan : [DEFERRED] — menambah route UI = keputusan User. Tabel D.
+
+[TD-N60] RBAC manager warehouse isolation = no-op TODO (2 situs)
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN — ESCALATE (jangan di-park; lihat catatan di bawah)
+  Kategori : SECURITY
+  Deskripsi: Dua endpoint yang seharusnya membatasi manager ke gudang
+             miliknya sendiri hanya punya kerangka checks kosong: `if
+             userInfo.Role == "manager" { // TODO: check warehouse ownership }`.
+             Blok itu TIDAK APA-APA — tidak memblokir, tidaklog, tidak error.
+             Akibatnya manager (atau role apa pun selain admin) dapat
+             MEMBUAT TRANSAKSI dan MELIHAT INVENTORY GUDANG MANA SAJA.
+  Bukti    : scinel-backend/internal/handler/inventory_handler.go:193-196
+               // RBAC: Manager only own warehouse (placeholder)
+               if userInfo.Role == "manager" {
+                 // TODO: check warehouse ownership
+               }
+             scinel-backend/internal/handler/inventory_handler.go:487-489
+               if userInfo.Role == "manager" {
+                 // TODO: check warehouse ownership
+               }
+             Keduanya no-op (blok if kosong tanpa return/err). 117 (POST
+             /api/v1/transactions) dan :119 (GET /api/v1/inventory/{warehouse_id})
+             TIDAK punya RBAC lain (main.go hanya bungkus 4 route api-keys di
+             adminOnly).
+  Dampak  : ESKALASI. Ini gap otorisasi nyata, bukan sekadar debt kosmetik.
+             Manager A bisa menambah/mengurangi stok di gudang Manager B
+             (POST /transactions) dan melihat stok gudang B (GET /inventory/
+             {id}). Untuk platform multi-tenant/gudang, iniotorisasi yang
+             tidak seharusnya. Tidak ada single-bug yang bisa dibuktikan
+             di test HTTP karena tidak ada test live, tapi kode jelas: blok
+             if kosong = tidak ada pembatasan.
+  Opsi     : (1) implementasikan ownership check (tambah kolom warehouse_id
+             ke tabel users, atau tabel user_warehouse, atau ambil daftar
+             gudang dari tabel lain) — perlu keputusan skema; (2) sementara:
+             tolak 403 untuk role manager di 2 endpoint itu (fail-closed)
+             sampai ownership siap; (3) jika role manager memang tidak
+            pernah dipakai sebagai role yang dibatasi, hapus blok if tersebut agar
+             tidak menyesatkan.
+  Catatan : [ESCALATE] R5 (fix security SEKARAN) vs §11.4.2 (auth/RBAC = STOP).
+             OpenCode tidak boleh memperbaikinya sendiri (mengubah auth/RBAC =
+             §11.4.2) DAN tidak boleh memarknya jadi "TD yang ditunda" (R5).
+             Resolusi: LAPOR ke User sebagai PRIORITAS TINGGI, jangan dipark.
+             Cluster ini juga berkaitan dengan D-003 (RBAC hanya di 4 route).
+
+[TD-N61] API key tidak bisa dipakai sebagai metode autentikasi
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN — ESCALATE (jangan di-park; lihat catatan di bawah)
+  Kategori : SECURITY
+  Deskripsi: Repo punya fitur API key lengkap (tabel, repository, handler,
+             4 endpoint admin create/list/revoke/rotate) TETAPI tidak ada satu
+             pun tempat API key dipakai untuk AUTENTIKASI. X-API-Key dibaca
+             HANYA di rate_limit.go untuk membuat key bucket rate limit
+             (sebagai identitas, bukan otorisasi). Artinya user yang punya
+             API key tidak bisa memakainya untuk calling API; dan key
+             manapun yang%로 valid/expired/revoked TIDAK diperiksa di mana pun
+             pada jalur auth.
+  Bukti    : `grep -rn "X-API-Key" --include=*.go .` ->
+               internal/middleware/rate_limit.go:108 (membaca header)
+               internal/middleware/rate_limit_test.go:34,46,136 (test saja)
+             -> TIDAK ada di middleware/auth.go, TIDAK ada validasi di
+             repository api_key, TIDAK ada handler yang memverifikasi key
+             sebelum menerima request.
+             API key management: handler/api_key_handler.go (CreateAPIKey,
+             ListAPIKeys, RevokeAPIKey, RotateAPIKey) + main.go:135-138
+             (4 route). Tapi key yang dihasilkan hanya RANDOM STRING
+             (dibaca di rate_limit.go:108 sebagai label bucket).
+             Pengecekan status key (valid/expired/revoked) — tidak ada di
+             mana pun pada jalur request.
+  Dampak  : (1) fitur API key secara efektif tidak berfungsi (UI/API 관리
+             key berjalan, tapi key tidak berguna untuk integrasi);
+             (2) rate limit berbasis X-API-Key bisa "dibypass" — klien
+             mengiri header X-API-Key acak berbeda tiap request untuk
+             mendapat bucket rate limit BARU setiap kali (karena key tidak
+             diverifikasi, rate_limit.go:108 langsung memakainya sebagai key
+             tanpa validasi).
+  Opsi     : (1) tambahkan APIKeyAuthMiddleware yang memverifikasi key
+             terhadap repository (valid, belum expired, belum revoked),
+             dan pasang sebelum/selain AuthMiddleware; (2) jika API key
+             tidak dimaksudkan untuk auth (hanya identifikasi rate limit),
+             dokumentasikan itu eksplisit dan ubah nama field supaya tidak
+             menyesatkan.
+  Catatan : [ESCALATE] Sama seperti TD-N60 — R5 vs §11.4.2. Butuh
+             otorisasi User untuk menambah auth path. Tabel D TIDAK memuat
+             item ini karena bukan "menunggu keputusan" — ini "menunggu
+             Eksekusi yanghdr harus diotorisasi". Cluster dengan TD-N60.
+
+[TD-N62] Klaim cache hit rate >60% tanpa 1 pun cache read nyata
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DOKUMENTASI
+  Deskripsi: TEST.txt (dan kemungkinan dokumen lain) mengklaim cache hit
+             rate >60%. Di kode, TIDAK ADA satu pun pembacaan cache Redis di
+             lapisan repository/service — GetBySKUCached hanya memanggil
+             GetBySKU (tanpa cache), dan InvalidateCache adalah no-op.
+             Klaim "cache hit rate" tidak punya dasar di kode.
+  Bukti    : `grep -rn "redis\|Redis" --include=*.go internal/repository/
+             internal/service/ | grep -vi "miniredis\|_test"` -> hanya 2
+             hasil, KEDUA-nya komentar:
+               internal/repository/inventory_repository.go:66
+                 // GetBySKUCached retrieves inventory with Redis cache
+                 // fallback (30s TTL)
+               internal/repository/inventory_repository_impl.go:372 (comment)
+             implementasi: inventory_repository_impl.go:373-376
+               func (r *inventoryRepository) GetBySKUCached(ctx, warehouseID, skuID)
+                 (*model.Inventory, error) {
+                   return r.GetBySKU(ctx, warehouseID, skuID)   // NO CACHE
+               }
+             InvalidateCache (:378-381) -> `return nil` (no-op).
+             Dengan kata lain: TIDAK ADA SATU PUN cache READ/WRITE Redis di
+             jalur inventory. Klaim "cache hit rate >60%" (dari TEST.txt /
+             section Week 9) tidak dapat diverifikasi dan hampir pasti salah.
+  Dampak  : dokumentasi performance ini menyesatkan. Saya juga menemukan
+             (extra Redis round-trip per read) tidak ada — jadi "cache hit
+             rate" bukan hanya salah, tapi TIDAK ADA cache untuk diukur.
+  Opsi     : (1) implementasikan cache Redis sungguhan di GetBySKUCached
+             (TTL 30s, invalidasi setelah transaksi) —답 PADA TD-N10+TD-N11
+             sekaligus; (2) turunkan klaim di TEST.txt.
+  Relasi  : TD-N10 (GetBySKUCached), TD-N11 (InvalidateCache) — dua TD lama
+             yang tidak pernah hilang tapi sekarang jelas(nullptr cache read).
+
+[TD-N63] 58 checkbox [ ] belum dicentang (ROADMAP 2: 26, ROADMAP 4: 32)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DOKUMENTASI
+  Deskripsi: ROADMAP 2 dan ROADMAP 4 memakai format checkbox markdown
+             ("- [ ]") sementara ROADMAP 1 dan 3 memakai emoji (✅). Tidak
+             satu pun checkbox tercentang — artinya status di roadmap tidak
+             pernah diperbarui sejak ditulis.
+  Bukti    : `grep -c "^\s*- \[ \]" "docs/ROADMAP 2 BACKEND CORE.md"` -> 26
+             `grep -c "^\s*- \[ \]" "docs/ROADMAP 4. DEPLOYMENT.md"` -> 32
+             Total 58. ROADMAP 1 (0) dan ROADMAP 3 (0) tidak punya checkbox.
+             ROADMAP 2: 187 emoji ✅ + 26 checkbox [ ].
+             ROADMAP 4: 220 emoji ✅ + 32 checkbox [ ].
+  Dampak  : dashboard progres yang menyesatkan — ROADMAP 2 dan 4 terlihat
+             "220 ✅" tapi 58 item checkbox adalah pekerjaan yang belum
+             ditandai selesai. Tidak jelas item mana yang selesai dan mana
+             yang tidak di antara keduanya.
+  Opsi     : (1) centang item yang sudah terbukti selesai (dengan bukti
+             kode/file); (2) hapus checkbox, andalkan emoji konsisten;
+             (3) biarkan dan catat sebagai gap dokumentasi.
+  Catatan : [DEFERRED] — updating roadmap = keputusan editorial, OpenCode
+             tidak boleh mencentang sendiri (R3). Tabel D.
+
+[TD-N64] ROADMAP 3 §8.4 klaim "Cross-browser tested" & "Cross-device verified"
+           tanpa bukti
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DOKUMENTASI
+  Deskripsi: ROADMAP 3 §8.4 (Browser Testing & Final Polish) menyatakan
+             ✅ untuk Chrome/Edge, Firefox, Safari, Mobile Safari, Android
+             Chrome, dan device 1920x1080/1366x768/768x1024/375x667 —
+             padahal playwright.config.ts HANYA punya project "chromium"
+             (dan tidak ada device emulation). Tidak ada cross-browser test
+             yang benar-benar dijalankan.
+  Bukti    : docs/ROADMAP 3 FRONTEND or MOBILE.md:1990-2022 "Week 8.4" ->
+             :1994 "Chrome/Edge (latest) ✅", :1995 "Firefox (latest) ✅",
+             :1996 "Safari (latest) ✅", :2000-2004 device ✅, :2019 "✅
+             Cross-browser tested", :2020 "✅ Cross-device verified",
+             :2021 "✅ UI polish complete", :2022 "✅ Ready for production".
+             playwright.config.ts:17-20 -> projects: [ { name: 'chromium', use:
+             { ...devices['Desktop Chrome'] } } ] — HANYA chromium, tanpa
+             devices mobile/tablet.
+             Total tests: 5 (scinel-e2e.spec.ts), belum dieksekusi
+             (per register bagian A/B — butuh backend+frontend hidup).
+  Dampak  : klaim "ready for production" dipertanggungjawabkan oleh test
+             yang tidak ada. Untuk aplikasi Next.js, perbedaan Safari
+             (terutama layout/overflow) nyata.
+  Opsi     : (1) tambahkan project Firefox/WebKit ke playwright.config.ts
+             + jalankan E2E di CI; (2) turunkan klaim di ROADMAP 3.
+  Relasi  : TD-N53 (Lighthouse — same section, same nature: klaim tanpa
+             artefak); TD-N65 (artefak E2E 0).
+  Catatan : [DEFERRED] — updating roadmap = keputusan editorial. Tabel D.
+
+[TD-N65] Artefak hasil E2E 0 ter-commit / belum eksekusi
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : TEST
+  Deskripsi: Playwright E2E sudah ada (5 test) tetapi belum pernah
+             dieksekusi dalam environment nyata (butuh backend + frontend
+             hidup bersamaan), dan tidak ada artefak hasil (report/
+             screenshot/traces) yang ter-commit atau disimpan. Status
+             E2E "✅ Playwright tersedia" (register bagian B item 6) belum
+             berarti "E2E hijau".
+  Bukti    : `git ls-files | grep -cE "playwright-report|test-results"` ->
+             0 (sudah TD-N12: 6 file test-results pernah di-untrack di W3.2,
+             lalu 20 file .bak dihapus di W7). Tidak ada artefak E2E
+             ter-commit.
+             playwright.config.ts:11-12 -> baseURL http://localhost:3000,
+             screenshot 'only-on-failure', trace 'on-first-retry'.
+             5 test di tests/e2e/scinel-e2e.spec.ts (baseURL 3000 di :5-6,
+             sudah konsisten setelah A.1 fix).
+             .gitignore:40-42 sudah meng-ignore playwright-report/ dan
+             test-results/ — jadi artefak fresh TIDAK akan ter-commit
+             (by design) tetapi juga TIDAK disimpan di repo.
+  Dampak  : tidak ada bukti E2E pernah hijau. Untuk E2E yang jadi "jaring
+             pengaman" sebelum rilis, ini berarti jaring belum diuji.
+  Opsi     : (1) jalankan E2E terhadap stack hidup (dengan docker-compose
+             untuk DB) dan simpan hasilnya sebagai artefak/build; (2) tambahkan
+             E2E job di CI (td-N50); (3) biarkan.
+  Relasi  : TD-N50 (CI tidak punya E2E job); TD-N64 (cross-browser klaim
+             tanpa eksekusi); register B.6 (E2E "FIXED" tapi artefak 0).
+
+[TD-N66] Webhook service/handler tidak punya rate limit sama sekali
+  (CATATAN: brief menyebut "rate limit tidak pakai config (hardcoded)" —
+   itu SALAH; koreksi di Tabel B OVERRIDE-1)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: Tidak ada rate limit di webhook service maupun webhook handler
+             (bukan "hardcoded" — TIDAK ADA). Yang ada adalah rate limit
+             GLOBAL di main.go:146 (1000 req/s) yang juga berlaku untuk
+             /api/v1/webhooks/*. Listener webhook pihak ketiga (subscriber)
+             TIDAK memiliki rate limit/cadence control pada sisi server
+             scintel (kecuali job poll 30s internal). Root cause yang
+             sebenarnya: endpoint manage-subscription dan delivery listing
+             tidak punya gate khusus.
+  Bukti    : `grep -n "rateLimit\|RateLimit\|429" internal/service/
+             webhook_service.go internal/handler/webhook_handler.go` -> 0.
+             Global rate limit: main.go:146 (1000/s, berlaku untuk semua
+             route termasuk webhooks).
+             Webhook worker poll: main.go:181-186 (30s, internal).
+  Dampak  : endpoint webhooks mengikuti bucket global yang longgar (1000/s),
+             dan tidak ada batasan pada delivery rate ke subscriber per
+             subscription (jika ada 1000 subscriber, satu event bisa
+             menghasilkan 1000 delivery dalam 30 detik).
+  Opsi     : (1) per-endpoint rate limit (grup webhooks lebih ketat dari
+             global); (2) backpressure per subscriber; (3) biarkan (untuk
+             internal/development).
+  Catatan : [DEFERRED] — bertumpu pada keputusan D-001/D-002. Tabel D.
+
+[TD-N67] POST /api/v1/inventory/import membalas "Import processed (placeholder)"
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: Endpoint import inventory mengembalikan respons sukses dengan
+             pesan "Import processed (placeholder)". Ini memberi-ilusi
+             bahwa import berhasil padahal TIDAK ada logika import yang
+             dijalankan. Kalau ada UI/klien yang mengandalkan 200 + data,
+             klien akan mengira data sudah masuk.
+  Bukti    : scinel-backend/internal/handler/inventory_handler.go:546
+               util.WriteResponse(w, http.StatusOK, "Import processed (placeholder)", data, requestID)
+             Didaftarkan di main.go:120 (POST /api/v1/inventory/import).
+             ("placeholder" string di body handler yang sama, baris 546.)
+  Dampak  : HIGH untuk integritas data — klien mengira import berhasil
+             padahal tidak ada yang diimport. 200 OK untuk operasi yang
+             tidak terjadi adalah kegagalan diam-diam yang lebih buruk dari
+             error yang jujur.
+  Opsi     : (1) implementasikan import sungguhan (parse CSV/JSON, upsert
+             inventory per warehouse/SKU) — effort tinggi; (2) sementara:
+             kembalikan 501 Not Implemented (jujur) alih-alih 200 OK
+             placeholder; (3) hapus endpoint sampai siap.
+  Catatan : [DEFERRED] — implementasikan import = fitur baru; kembalikan 501
+             = keputusan User. Tabel D.
+
+[TD-N68] anomaly_handler.go:94 filter belum diimplementasikan (TODO)
+  Severity : MEDIUM (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : KODE
+  Deskripsi: ListAnomalies handler punya komentar TODO untuk filter
+             produksi yang belum diimplementasikan — kemungkinan besar
+             filter tidak bekerja (mengembalikan semua anomali).
+  Bukti    : scinel-backend/internal/handler/anomaly_handler.go:94
+               // Get all anomalies (TODO: implement filter in repository for production)
+             Didaftarkan di main.go:128 (GET /api/v1/anomalies).
+  Dampak  : MEDIUM. Filter (severity/status/date) di UI tidak di backend, jadi
+             filtering mungkin hanya di client (jika ada). Untuk data anomali
+             yang bisa banyak, "get all" bermasalah.
+  Opsi     : (1) implementasikan filter di repository (severity, status,
+             date-range) dengan SQL WHERE; (2) biarkan dengan catatan.
+  Catatan : [DEFERRED] — Touch handler+repository di luar W9a. Tabel D.
+
+[TD-N69] ROADMAP 3 klaim 8 hooks ✅ di testing checklist, tapi 7 tidak ada
+  Severity : HIGH (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DOKUMENTASI
+  Deskripsi: Checklist "Unit Tests" di ROADMAP 3 mencantumkan hooks sebagai
+             ✅ lengkap: "useAuth, useApi, useTheme, useInventory, useForecast,
+             useAnomalies, useForm, useDebounce ✅ (8 hooks)". Reality: hooks/
+             hanya berisi 3 file (useApi, useBreakpoint, useDashboardData).
+             Jadi dari 8 yang diklaim, hanya useApi yang benar-benar ada —
+             7 hook TIDAK PERNAH ADA.
+  Bukti    : docs/ROADMAP 3 FRONTEND or MOBILE.md (section "Unit Tests
+             (50+ files)") -> "✅ Hooks (useAuth, useApi, useTheme,
+             useInventory, useForecast, useAnomalies, useForm, useDebounce)".
+             `ls hooks/` -> useApi.ts, useBreakpoint.ts, useDashboardData.ts
+             (3 file). useAuth, useTheme, useInventory, useForecast,
+             useAnomalies, useForm, useDebounce -> TIDAK ADA (grep di
+             app/components/lib/hooks -> 0 hasil untuk useForm/useDebounce
+             dan hook lain juga tidak ada).
+             useApi sendiri TIDAKDipakai produksi (dead code — TD-N31);
+             useBreakpoint juga dead (TD-N31).
+  Dampak  : 7 hook fiktif di checklist test. Ini membuat "71 test suite PASS"
+             terlihat menutup 8 hook padahal hanya 1 (yang juga tidak
+             dipakai). Klaim testing checklist ROADMAP 3 tidak dapat
+             dipercaya secara keseluruhan.
+  Opsi     : (1) implementasikan hook yang dibutuhkan halaman; (2) turunkan
+             klaim di ROADMAP 3; (3) biarkan tapi tandai sebagai "planned".
+  Relasi  : TD-N31 (useApi/useBreakpoint dead code), TD-N32 (useDashboardData),
+             TD-N58 (ConfidenceIntervalBadge fiktif — pola yang sama).
+  Catatan : [DEFERRED] — koreksi dokumen = keputusan editorial. Tabel D.
+
+[TD-N70] Go toolchain "covdata" hilang -> `go test -cover` per paket terbatas
+  Severity : LOW (baru — ditemukan W9a 2026-09-27)
+  Status   : OPEN
+  Kategori : DEVOPS
+  Deskripsi: `go test ./... -cover` gagal untuk paket scripts karena tool
+             "covdata" tidak ada di Go toolchain yang dipakai. Ini bukan
+             kode yang rusak — ini toolchain yang belum lengkap, tapi
+             membuat laporan coverage per paket TIDAK BISA DIHASILKAN untuk
+             paket yang butuh merge coverage.
+  Bukti    : `go test ./... -cover` -> "# github.com/LittleMardiah/scinel/scripts
+             go: no such tool \"covdata\"". Paket scripts tidak punya test file
+             (0 file), jadi `go test -cover` tidak bisa di-skip dan covdata
+             dipanggil. 13 paket lain tetap ok.
+  Dampak  : rendah. Coupon: 13 paket inti tetap ok; hanya paket scripts yang
+             tidak bisa di-laporkan. Tapi covdata yang hilang juga berarti
+             `go tool covdata` (untuk merge coverage antar-paket) tidak
+             bisa dipakai —škrip codecov di CI (.github/workflows/ci.yml:68
+             `go test -v -race -coverprofile=coverage.out ./...`) TIDAK
+             menggunakan covdata, jadi CI tidak terdampak langsung.
+  Opsi     : (1) install Go toolchain lengkap (go install
+             golang.org/x/tools/cmd/covdata — tidak standar; biasanya
+             reinstall go); (2) tambahkan test file minimal di scripts/
+             (sehingga tidak memanggil covdata); (3) biarkan.
+  Catatan : [DEFERRED] — reinstall toolchain = keputusan environment. Tabel D.

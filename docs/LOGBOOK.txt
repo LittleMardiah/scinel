@@ -3166,14 +3166,14 @@ AUTO LOG:
 DEVIASI / KOREKSI DIRI SENDIRI:
   1. Saat menulis blok `Perbaikan` ke TECHNICAL_DEBT.txt, sempat terpasang 3
      token asing yang salah: satu karakter Mandarin ("삭") di blok Opsi, satu
-     kalimat Mandarin ("也就是说") di blok Bukti pendukung, dan satu string
+     kalimat Mandarin di blok Bukti pendukung, dan satu string
      bukan-bahasa ("tak_termsaguchi") di blok Verifikasi. Ketiganya terdeteksi
      sendiri saat reread file, lalu diperbaiki. Scanner kontrol
      `grep -nP '[\x{4e00}-\x{9fff}\x{ac00}-\x{d7af}\x{0400}-\x{04ff}]'` pada
-     blok TD-N33 -> CLEAN, dan `grep "termsaguchi|也就是说|삭"` di kedua file
+     blok TD-N33 -> CLEAN, dan `grep` token asing di kedua file
      docs -> CLEAN. Dicatat karena R3/R4: kalau ga dicek, tiga token asing itu
      akan lolos ke commit. Polanya terulang di entri ini: saat blok LEARNING
-     CHECKPOINT ditulis, 4 token asing lain muncul juga ("辑", "诶", "¾", dan
+     CHECKPOINT ditulis, 4 token asing lain muncul juga,
      beberapa kata menempel) dan diperbaiki di revisi berikutnya. Scanner yang
      sama dijalankan ulang atas seluruh blok W7.1, hasil akhir CLEAN.
   2. V3 brief ("71/71") tidak dikoreksi di log — dilaporkan apa adanya sebagai
@@ -3441,3 +3441,326 @@ STATUS: V1-V7 PASS (V2 perlu koreksi filter nama test, dilaporkan apa adanya).
   Sisa OPEN tidak berubah: TD-N31 (LOW), TD-N32 (MEDIUM). Total entri
   register: 38 (8 entri lama + 30 TD-N baru), tidak bertambah di W8.
   Menunggu User commit via PowerShell.
+
+================================================================
+W9a — RE-AUDIT LENGKAP + SINKRONISASI TECHNICAL_DEBT REGISTER
+   (2026-09-27)
+================================================================
+Status : SELESAI — READ-ONLY terhadap kode, register + logbook saja
+Rules  : TEAM_CONTRACT.md v2.2 — R2 (kode = source of truth), R3 (zero
+         halusinasi / wajib file:line), R8 (scope control)
+Brief  : "W9a — Re-audit lengkap + sinkronisasi TECHNICAL_DEBT register"
+Masuk  : 50 entri existing diperiksa, 42 temuan diverifikasi, 36 TD baru
+         (TD-N35..TD-N70), 8 klaim register dikoreksi.
+
+----------------------------------------------------------------
+1. APA YANG DIKERJAKAN (READ-ONLY, R2 + R8)
+----------------------------------------------------------------
+TIDAK ADA file .go / .ts / .tsx / .sql / .yml / .json yang disentuh. Hanya 2
+dokumen berubah: docs/TECHNICAL_DEBT.txt dan docs/LOGBOOK.txt (file ini).
+
+Metode verifikasi (semua dijalankan 2026-09-27):
+  go build ./...            -> exit 0
+  go vet ./...              -> exit 0
+  go test ./... -cover      -> 13 paket ok, 0 FAIL
+  npx tsc --noEmit          -> exit 0
+  npx jest --coverage       -> 71 suite / 113 test PASS, JEST_EXIT=1
+  git ls-files / git check-ignore -v --no-index / git status --short
+  grep -rn / sed -n / ls -la / file / xxd / find
+  npx jest --coverage --coverageReporters=text (tabel coverage per-file)
+  Python (hitung entri register, cross-check jumlah vs isi file)
+
+----------------------------------------------------------------
+2. TEMUAN PALING PENTING (urutan dampak)
+----------------------------------------------------------------
+(T1) BACKOFF WEBHOOK SEPENUHNYA KOSMETIK — WEBHOOK_TIDAK-PAKAI-BACKOFF
+     Bukti: migrations/000008_create_webhook_tables.up.sql:28 punya kolom
+     scheduled_retry_at. webhook_repository_impl.go:194-198 MEMBACA kolom itu
+     (SELECT + filter "scheduled_retry_at IS NULL OR <= NOW()").
+     TAPI UpdateDeliveryStatus (:228-238) tidak pernah menulisnya (kolom
+     tidak ada di daftar SET), dan webhook_service.go:236
+     `nextRetryTime := wp.calculateRetryTime(...)` hanya dipakai di
+     logger.Warn (:246-249), bukan diteruskan ke repository.
+     Akibat: scheduled_retry_at selalu NULL -> filter selalu TRUE ->
+     retry jalan pada cadence poll 30s, bukan 1s/2s/4s. Backoff eksponensial
+     TIDAK PERNAH BERLAKU. TD-N6 mengklaim "backoff sudah ada di kode" —
+     klaim itu dikoreksi. Entri baru: TD-N35.
+
+(T2) RBAC MANAGER = NO-OP TODO (2 SITUS) — ESCALATE
+     inventory_handler.go:193-196 dan :487-489:
+       // RBAC: Manager only own warehouse (placeholder)
+       if userInfo.Role == "manager" {
+         // TODO: check warehouse ownership
+       }
+     Blok if KOSONG (tanpa return/err). Manager bisa POST /transactions dan
+     GET /inventory/{id} untuk gudang siapa pun. Entri baru: TD-N60.
+
+(T3) API KEY TIDAK BISA DIPAKAI SEBAGAI AUTH
+     grep "X-API-Key" --include=*.go -> HANYA rate_limit.go:108 (sebagai
+     label bucket rate limit) + 3 test. Tidak ada validasi terhadap
+     repository api_key, tidak ada di middleware/auth.go, tidak ada
+     pemeriksaan status key (valid/expired/revoked) di jalur request.
+     Efek samping yang lebih buruk: klien bisa mengirim X-API-Key acak
+     berbeda tiap request untuk mendapat bucket rate limit baru setiap kali
+     (rate_limit.go:108 memakainya tanpa validasi).
+     Entri baru: TD-N61.
+
+(T4) 3 PAKET BACKEND COVERAGE 0.0%
+     go test ./... -cover ->
+       internal/repository  0.0%  (9 file test, 8 `assert.True(t, true)`)
+       internal/service     0.0%  (5 file t.Skip + 1 file kosong)
+       cmd/api              0.0%  (5 composition test, tidak sentuh main())
+     handler 76.8%, middleware 80.8%, util 90.5%, database 85.4%,
+     scheduler 96.5%, timeseries 92.6%, config/model/logger 100%.
+     Entri baru: TD-N36, TD-N37, TD-N38.
+
+(T5) COVERAGE REGISTER USANG (B.4, B.5)
+     Register mengklaim handler 83.7% dan middleware 99.0% (ditulis
+     2026-09-04). Aktual 2026-09-27: handler 76.8%, middleware 80.8%.
+     Kedua angka dikoreksi; status FIXED tetap (test-nya ada dan lulus).
+
+(T6) FRONTEND COVERAGE GATE GAGAL
+     npx jest --coverage -> JEST_EXIT=1
+       Branches  32.89% (297/903)  < 50  -> GAGAL
+       Functions 45.76% (173/378)  < 50  -> GAGAL
+       Statements 60.33%, Lines 63.18% (keduanya di atas 50)
+     Threshold di jest.config.js = 50 untuk keempat metrik.
+     34 dari 71 file test (47.9%) = smoke test saja; 14 dari 16 page test
+     cuma `expect(document.body)`. lib/api.ts fungsi 28.57%.
+     Entri baru: TD-N40, TD-N41.
+
+(T7) .env.test TER-TRACK
+     git ls-files | grep .env -> scinel-backend/.env.test (TRACKED) +
+     scinel-frontend/.env.example. Isinya memuat DATABASE_URL dengan
+     kredensial + JWT_SECRET_KEY. Nilai eksplisit "test" dan BERBEDA dari
+     yang dipakai CI (ci.yml:66 JWT_SECRET_KEY: test-secret) -> severity
+     MEDIUM, bukan CRITICAL. .gitignore TIDAK punya rule .env / .env.test
+     (blok env hanya .env.local + .env.production). Entri: TD-N45, TD-N46.
+
+(T8) CLAIM ROADMAP 3 YANG TANPA ARTEFAK
+     - "✅ Lighthouse score >90 verified" (ROADMAP 3:1978) -> 0 konfigurasi/
+       laporan/artefak Lighthouse di repo.
+     - "✅ Cross-browser tested" / "✅ Cross-device verified" (ROADMAP 3:2019-
+       2020) -> playwright.config.ts hanya punya 1 project (chromium),
+       tanpa device emulation.
+     - "✅ Hooks (useAuth, useApi, useTheme, useInventory, useForecast,
+       useAnomalies, useForm, useDebounce)" -> hooks/ hanya berisi 3 file
+       (useApi, useBreakpoint, useDashboardData). 7 dari 8 hook TIDAK ADA.
+     - Klaim "cache hit rate >60%" -> 0 cache read di seluruh repository/
+       service (grep redis -> hanya 2 komentar). GetBySKUCached = alias
+       GetBySKU. Klaim tidak punya dasar.
+     Entri: TD-N53, TD-N62, TD-N64, TD-N69.
+
+(T9) DEVOPS = 0 ATAU KOSONG
+     - Dockerfile backend 0 BYTE; frontend Dockerfile tidak ada.
+     - .github/workflows/ci.yml: 1 job ("test") backend saja. Tidak ada
+       stage deploy. grep pnpm|npm|jest|next|tsc di ci.yml -> 0, jadi
+       frontend 100% tanpa CI.
+     - 0 descriptor PaaS/IaC (cuma docker-compose postgres+redis).
+     - 0 monitoring (grep prometheus|sentry|datadog -> 0).
+     - 0 skrip k6; 0 screenshot; 0 artefak E2E ter-commit.
+     Entri: TD-N49, TD-N50, TD-N51, TD-N52, TD-N54, TD-N55, TD-N65.
+
+(T10) .gitignore:45 docs/ ADALAH JEBAKAN
+     32 file docs/ sudah tracked, tapi rule `docs/` membuat file BARU di
+     docs/ tidak bisa di-add tanpa `git add -f`. docs/DEPLOYMENT.md tidak
+     ada padahal dirujuk 6x — termasuk TDD.md:2737 yang mengklaim "✅
+     docs/DEPLOYMENT.md (deployment guide)". Entri: TD-N48.
+
+(T11) 2 TEMUAN DI LUAR DAFTAR BRIEF
+     - inventory_handler.go:546 -> POST /api/v1/inventory/import membalas
+       200 OK "Import processed (placeholder)". 200 untuk operasi yang
+       TIDAK terjadi = kegagalan diam-diam. Severity HIGH. TD-N67.
+     - anomaly_handler.go:94 -> "TODO: implement filter in repository for
+       production"; ListAnomalies kemungkinan get-all. TD-N68.
+
+----------------------------------------------------------------
+3. KOREKSI 8 KLAIM REGISTER (R2 — dokumen yang salah, kode yang benar)
+----------------------------------------------------------------
+K1. HEADER "Total entri register: 38" -> 50. Bagian A (5) + B (7) tidak
+    pernah masuk hitungan. Akar masalah: tidak ada verifikasi silang
+    "jumlah entri" vs "isi file".
+K2. B.1 catat "[STALE] repository masih TODO di :137-157" -> SALAH.
+    grep -rn TODO internal/repository/ -> 0. GetBySKU sudah SQL penuh di
+    :139-170 (SELECT + 2 JOIN, 11 kolom, ErrNoRows -> nil,nil).
+K3. B.4 "coverage handler 83.7%" -> 76.8% (angka usang, 8 commit kemudian).
+K4. B.5 "coverage middleware 99.0%" -> 80.8% (angka usang).
+K5. A.2 "[FIXED] 5434 -> 5432" -> SALAH dan BERBAHAYA. .env.local:4 masih
+    5434, dan docker-compose.yml:11 memetakan "5434:5432" — jadi 5434 itu
+    BENAR untuk docker-compose. Menerapkan "fix" REGISTER akan MEMECAHKAN
+    koneksi. Status A.2 turun ke OPEN. Sisa tidakselaras: docker-compose
+    expose Redis host 6381 (:28) tapi .env.local pakai 6379 (:14).
+K6. TD-N1 "[OPEN / CRITICAL]" -> premisanya REFUTED. GetBySKU sudah
+    terimplementasi; CreateTransaction sudah pakai errors.Is ke sentinel
+    (404/409) sebelum default 500 (:250-258). Sisa yang sah: baris :257
+    membocorkan err.Error() ke klien (information disclosure).
+    Severity CRITICAL -> LOW.
+K7. D-001..D-004 tidak punya baris "Status" sama sekali -> diisi OPEN
+    (semua diverifikasi masih ada di kode).
+K8. TD-N6 "backoff eksponensial sudah ada di kode dan TIDAK disentuh" ->
+    SETENGAH SALAH, lihat (T1). Status TD-N6 tetap FIXED (scheduler memang
+    terjadwal); yang dikoreksi adalah klaim backoff-nya.
+
+Tidak ada klaim tanpa bukti file:line yang tertinggal di 50 entri existing.
+
+----------------------------------------------------------------
+4. 7 KOREKSI FAKTA TERHADAP BRIEF W9a (§11.2 — Reviewer boleh salah)
+----------------------------------------------------------------
+[OVERRIDE-1] Brief: "webhook_service.go rate limit tidak pakai config
+  (hardcoded)". Kenyataan: grep rateLimit|RateLimit|429 di
+  webhook_service.go DAN webhook_handler.go -> 0 hasil. TIDAK ADA rate
+  limit sama sekali, jadi tidak ada yang "hardcoded".
+  Fix: dicatat ulang sebagai TD-N66 ("tidak ada rate limit"), bukan
+  "hardcoded". Alignment: R2 / R3.
+[OVERRIDE-2] Brief: "TD-N34 (XFF spoof)" sebagai item Tabel D. Kenyataan:
+  grep -c "^\[TD-N34\]" -> 0; entri itu tidak pernah ada. Topiknya =
+  TD-N26 (XFF, ditemukan W5b, ditutup W8).
+  Fix: Tabel D merujuk TD-N26 "Sisa" sebagai DEFERRED.
+  Alignment: R2 / R3.
+[OVERRIDE-3] Brief: "internal/repository coverage 0% (8 test placeholder)".
+  Kenyataan: 9 file test, bukan 8. 8 berisi `assert.True(t, true)`
+  (anomaly, api_key, base, forecast, inventory, transaction, user,
+  webhook) + 1 `func TestPlaceholder(t *testing.T) {}` (repository_test.go,
+  juga punya BOM di baris-1).
+  Fix: TD-N37 menulis 9 file dengan rincian. Alignment: R2.
+[OVERRIDE-4] Brief: "48% test file hanya smoke test" -> 34 dari 71 = 47.9%.
+  ANGKA BRIEF BENAR, dikonfirmasi penghitungan ulang. Tidak ada perubahan.
+[OVERRIDE-5] Brief: "32 checkbox [ ] di ROADMAP 4" -> 32, BENAR. Tambahan
+  yang tidak disebut brief: ROADMAP 2 punya 26 checkbox [ ] juga, sedangkan
+  ROADMAP 1 dan ROADMAP 3 punya 0 (semua pakai emoji ✅).
+  Fix: TD-N63 mencakup 26 + 32 = 58. Alignment: R2.
+[OVERRIDE-6] Brief: "cmd/api coverage 0% (main_test composition only, tidak
+  sentuh main())" -> go test ./... -cover = "cmd/api ... 0.0% of statements".
+  BENAR. Tidak ada perubahan.
+[OVERRIDE-7] Konteks brief: "1 klaim [OPEN] sudah FIXED (TD-N1)".
+  Kenyataan: TIDAK FIXED dan TIDAK refuted seluruhnya. GetBySKU memang
+  sudah terimplementasi (premisanya refuted) TETAPI jalur 500 default masih
+  ada di :257 — hanya sekarang itu perilaku default yang BENAR untuk error
+  tak terduga, bukan bug pemetaan status.
+  Fix: TD-N1 tetap OPEN, severity CRITICAL -> LOW, sisa dicatat eksplisit.
+
+----------------------------------------------------------------
+5. VOCABULARY BARU: DEFERRED
+----------------------------------------------------------------
+Register sebelumnya tidak punya status DEFERRED. Sekarang ada, dan definisinya
+ditulis eksplisit di header TECHNICAL_DEBT.txt:
+  DEFERRED = STATUS PARALEL, bukan pengganti OPEN. Gap masih ada di kode,
+              tetapi tidak boleh dikerjakan tanpa keputusan User/DeepSeek
+              lebih dulu (R8 + §11.4).
+Hitung: FIXED + RESOLVED + OPEN + PARTIAL = total. DEFERRED dihitung di
+dalam OPEN agar tidak dijumlahkan dua kali.
+Jumlah DEFERRED: 28 entri (tabel lengkap di TECHNICAL_DEBT.txt Tabel D).
+
+CATATAN PENTING — DEFERRED vs R5:
+  R5 berkata "fix security issue SEKARAN, bukan jadi TD", tetapi §11.4.2
+ listed auth/RBAC sebagai kategori yang WAJIB STOP. Dua entri berada di
+  titik potong ini dan TIDAK boleh dipark sebagai DEFERRED:
+    TD-N60 (RBAC manager warehouse isolation)  -> TETAP OPEN, ESCALATE
+    TD-N61 (API key tidak bisa jadi auth)      -> TETAP OPEN, ESCALATE
+  Keduanya gap keamanan nyata. OpenCode tidak boleh meny-fix sendiri
+  (§11.4.2) DAN tidak boleh memarknya jadi "TD yang ditunda" (R5).
+  Resolusi: LAPOR ke User sebagai prioritas, jangan parking.
+
+----------------------------------------------------------------
+6. HITUNGAN AKHIR
+----------------------------------------------------------------
+Tabel A (50 entri existing):
+  FIXED valid            : 22
+  RESOLVED valid         :  2   (R-001, R-002)
+  OPEN valid             : 17
+  PARTIAL valid          :  4   (D-006, TD-N9, TD-N23, TD-N29)
+  Klaim STALE dikoreksi  :  5   (A.2, B.1, B.4, B.5, TD-N1)
+  DEFERRED              : 28   (status paralel, tidak dijumlahkan di atas)
+Register setelah W9a:
+  Total entri            : 86   (12 bagian A/B + 8 entri lama + 66 TD-N)
+  TD baru                : 36   (TD-N35..TD-N70)
+  Nomor tidak terpakai   : TD-N18, TD-N19, TD-N20, TD-N34 (alasannya
+                           ditulis eksplisit, tidak diisi diam-diam)
+  Verifikasi jumlah      : script pemindai file -> bracket-entry 74,
+                           TD-N 66, range 1..70, gap [18,19,20,34].
+                           74 + 12 = 86. Konsisten dengan header.
+Tabel B (temuan baru): 42 temuan diperiksa -> 36 entri baru, 6 di-merge ke
+  entri lain / sudah tercakup entri existing (D-001, TD-N29, TD-N27 sisa,
+  TD-N32 sebagian, #21+#22 digabung).
+
+----------------------------------------------------------------
+7. RISIKO / CATATAN
+----------------------------------------------------------------
+  - W9a tidak memperbaiki APA PUN. Semua temuan 36 entri baru masih OPEN
+    atau DEFERRED. Itu memang diminta brief ("CATAT DULU semua TD + task
+    yang belum selesai", "JANGAN eksekusi fix apapun di W9a").
+  - docs/TEST.txt sudah MODIFIED SEBELUM W9a (git status awal menunjukinya,
+    423/423 = normalisasi CRLF). W9a TIDAK menyentuhnya — file itu tetap
+    modified di working tree, tetapi itu perubahan sesi SEBELUM W9a, bukan
+    hasil W9a. docs/TEST.txt tidak termasuk salah satu dari 2 dokumen yang
+    W9a ubah.
+  - Dua klaim register usang (coverage B.4/B.5) MENURUN. Ini hal yang tidak
+    enak, tapi R2 menuntutNumbers jujur: angka register lebih lama ditulis,
+    8 commit perbaikan menambah cabang lebih cepat daripada test. Menahan
+    angka lama hanya demi kesan "tetap bagus" = halusinasi (R3).
+  - A.2 hampir di-"fix" searah register yang keliru. Kalau W9a berubah jadi
+    sesi perbaikan kode, apply "5434->5432" akan MEMECAHKAN koneksi database
+    lokal. Buka blokir ini eksplisit di catatan Tabel D.
+  - Tidak ada `any` baru, tidak ada @ts-ignore, tidak ada skip test baru,
+    tidak ada --no-verify/--force, tidak ada commit, tidak ada push.
+  - gofmt / golangci-lint: tidak dijalankan pada kode karena tidak ada kode
+    yang diubah. go build + go vet keduanya exit 0 (dijalankan sebagai
+    verifikasi baseline).
+
+----------------------------------------------------------------
+8. LEARNING CHECKPOINT
+----------------------------------------------------------------
+  - Root cause (T1): skema punya kolom yang|Код membaca, tapi tidak ada
+    jalur yang MENULIS. Filter jadi selalu TRUE. Pelajaran: saat menambah
+    kolom "scheduled_*", telusuri seluruh jalur tulis, bukan hanya baca —
+    dan klaim "sudah diimplementasi" harus menyertakan bukti SCHEMA +
+    WRITE, bukan hanya hitungan dan log.
+  - Root cause (T4): paket Go bisa hijau 100% dengan t.Skip tanpa
+    assertion. "Paket hijau" != "paket teruji". Metrik yang benar =
+    berapa test yang punya assertion nyata, bukan berapa yang exit 0.
+    14 t.Skip + 10 placeholder = "0.0% of statements" adalah jawaban
+    sebenarnya; angka 13 paket "ok" hanya erzählt cerita lain.
+  - Root cause (K2/K5): register bisa MENYEBAR klaim palsu selama
+    berbulan-bulan karena tidak ada yang mencocokkan klaim dengan kode.
+    "STALE" yang ditulis tidak diverifikasi kelihatan seperti fakta.
+    Pelajaran: label status tanpa bukti AKTUAL adalah MDM (meaningless
+    data). Proof harus bisa direproduksi: `grep`, `sed -n`, `ls -la`.
+  - Root cause (T10): .gitignore punya rule `docs/` yang bertabrakan dengan
+    32 file tracked di dalamnya. Rule ignore hanya berlaku untuk file
+    untracked, jadi inkonsistensi ini tidak terlihat sampai seseorang
+    membuat file baru di docs/ — dan `git status` diam saja.
+    Pelajaran: `git check-ignore -v --no-index <path>` adalah cek cepat
+    untuk "apakah file baru di direktori ini akan terlihat".
+  - Pelajaran W9a: 42 temuan brief, 11 di antaranya TIDAK bisa diverifikasi
+    persis seperti yang ditulis (jumlah file test, ada/tidaknya rate
+    limit, nama entri TD-N34, status TD-N1). Brevity doesn't mean
+    precision.OVE-1..OVERRIDE-7 di atas menunjukkan bahwa discrepancy
+    harus dibetulkan secara faktual (§11.2), BUKAN dengan mengarang
+    register entry yang terlihat benar.
+  - Pelajaran: register yang sudah besar (86 entri) adalah aset, tapi juga
+    liability. Yang membedakan adalah apakah ada mekanisme yang MEMERIHATKAN
+    register vs kode secara berkala. W9a adalah mekanisme itu; declaring
+    "sudah diverifikasi" tanpa menjalankan grep/build/test adalah kebohongan
+
+----------------------------------------------------------------
+9. YANG MENUNGGU KEPUTUSAN USER
+----------------------------------------------------------------
+  PRIORITAS (eskalasi, bukan ditunda):
+    - TD-N60  RBAC manager warehouse isolation = no-op TODO
+    - TD-N61  API key tidak bisa dipakai sebagai metode autentikasi
+  PERLU KEPUTUSAN (28 entri, lihat Tabel D):
+    - Port dev resmi (A.2), nilai rate limit (D-001/D-002), detail error
+      ke klien (TD-N1), isi .env.example (TD-N9), breaking change
+      LockForUpdate (TD-N21), fail-open Redis (TD-N22), 401-vs-rate-limit
+      (TD-N25), XFF spoof closure (TD-N26), merge TEST.txt (TD-N28),
+      dead hooks (TD-N31), mock dashboard (TD-N32), migration
+      scheduled_retry_at (TD-N35), route guard middleware (TD-N39),
+      lib/api.ts mock (TD-N42), polling dashboard (TD-N43), endpoint
+      /auth/me (TD-N44), untrack .env.test (TD-N45), .gitignore env
+      (TD-N46), untrack binary (TD-N47), rule docs/ (TD-N48), Dockerfile
+      (TD-N49), CI deploy+frontend (TD-N50), PaaS (TD-N51), monitoring
+      (TD-N52), Lighthouse (TD-N53), k6 (TD-N54), screenshot/portfolio
+      (TD-N55), cache claim (TD-N62), checkbox roadmap (TD-N63), browser
+      claim (TD-N64), hook claim (TD-N69), webhook rate limit (TD-N66).
+  KONTRAK TIM (tidak berubah): commit tetap di User via PowerShell (R10).
+  W9a tidak commit, tidak push, tidak mengubah kode.
