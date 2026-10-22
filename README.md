@@ -152,6 +152,3 @@ cd scinel-frontend && pnpm test
 - Axios (API client + JWT interceptor)
 - Jest + React Testing Library, Playwright (E2E)
 
-## Lisensi
-
-MIT — lihat [LICENSE](LICENSE) untuk detail.
